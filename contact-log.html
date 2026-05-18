@@ -104,6 +104,12 @@
     font-size: 15px;
     pointer-events: none;
   }
+  .customer-select-row {
+    margin-top: 10px;
+  }
+  .customer-select {
+    font-family: var(--sans);
+  }
 
   /* ── 搜索结果下拉 ── */
   .search-results {
@@ -336,6 +342,11 @@
     >
     <div class="search-results" id="searchResults"></div>
   </div>
+  <div class="customer-select-row">
+    <select class="customer-select" id="customerSelect">
+      <option value="">先搜索或从这里选择联系人 / 公司</option>
+    </select>
+  </div>
 
   <!-- 已选客户展示 -->
   <div class="selected-customer" id="selectedDisplay">
@@ -518,7 +529,10 @@
     try {
       const res = await fetch(`${API_URL}?action=getCustomers`);
       const data = await res.json();
-      if (data.status === 'ok') allCustomers = data.data;
+      if (data.status === 'ok') {
+        allCustomers = data.data;
+        renderCustomerOptions(allCustomers);
+      }
     } catch (e) {
       // 静默失败，搜索时再试
     }
@@ -531,9 +545,17 @@
     const q = e.target.value.trim();
     if (q.length < 1) {
       document.getElementById('searchResults').classList.remove('show');
+      renderCustomerOptions(allCustomers);
       return;
     }
     searchTimer = setTimeout(() => doSearch(q), 250);
+  });
+
+  document.getElementById('customerSelect').addEventListener('change', (e) => {
+    const selectedId = e.target.value;
+    if (!selectedId) return;
+    const found = allCustomers.find(c => getCustomerField(c, 'id') === selectedId);
+    if (found) selectCustomer(found);
   });
 
   document.getElementById('searchInput').addEventListener('focus', (e) => {
@@ -543,11 +565,10 @@
   function doSearch(q) {
     const keyword = q.toLowerCase();
     let results = allCustomers.filter(c =>
-      (c.company && c.company.toLowerCase().includes(keyword)) ||
-      (c.contact_person && c.contact_person.toLowerCase().includes(keyword)) ||
-      (c.customer_id && c.customer_id.toLowerCase().includes(keyword))
+      getSearchText(c).toLowerCase().includes(keyword)
     ).slice(0, 8);
 
+    renderCustomerOptions(results, q);
     renderResults(results, q);
   }
 
@@ -557,42 +578,105 @@
       el.innerHTML = `<div class="no-results">无匹配客户 "${q}"</div>`;
     } else {
       el.innerHTML = results.map(c => `
-        <div class="result-item" onclick="selectCustomer(${JSON.stringify(c).replace(/"/g, '&quot;')})">
-          <span class="result-id">${c.customer_id || ''}</span>
+        <div class="result-item" onclick="selectCustomerById('${encodeURIComponent(getCustomerField(c, 'id'))}')">
+          <span class="result-id">${getCustomerField(c, 'id') || ''}</span>
           <div>
-            <div class="result-company">${highlight(c.company, q)}</div>
-            <div class="result-contact">${highlight(c.contact_person || '', q)}</div>
+            <div class="result-company">${highlight(getCustomerField(c, 'company'), q)}</div>
+            <div class="result-contact">${highlight(getCustomerField(c, 'contact'), q)} · ${highlight(getCustomerField(c, 'channel'), q)}</div>
           </div>
-          <span class="result-grade grade-${c.grade || 'B'}">${c.grade || '—'}</span>
+          <span class="result-grade grade-${getCustomerField(c, 'grade') || 'B'}">${getCustomerField(c, 'grade') || '—'}</span>
         </div>
       `).join('');
     }
     el.classList.add('show');
   }
 
+  function renderCustomerOptions(customers, q = '') {
+    const select = document.getElementById('customerSelect');
+    const options = customers.slice(0, 50).map(c => {
+      const id = getCustomerField(c, 'id');
+      const contact = getCustomerField(c, 'contact') || '无联系人';
+      const company = getCustomerField(c, 'company') || '无公司名';
+      const channel = getCustomerField(c, 'channel');
+      const label = `${contact} — ${company}${channel ? ' — ' + channel : ''} — ${id}`;
+      return `<option value="${escapeAttr(id)}">${escapeHtml(label)}</option>`;
+    }).join('');
+    const placeholder = q ? `选择匹配 "${q}" 的联系人 / 公司` : '选择联系人 / 公司';
+    select.innerHTML = `<option value="">${escapeHtml(placeholder)}</option>${options}`;
+  }
+
   function highlight(text, q) {
     if (!q || !text) return text || '';
     const re = new RegExp(`(${q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
-    return text.replace(re, '<mark style="background:rgba(58,123,213,0.3);color:#fff;border-radius:1px;">$1</mark>');
+    return escapeHtml(text).replace(re, '<mark style="background:rgba(58,123,213,0.3);color:#fff;border-radius:1px;">$1</mark>');
+  }
+
+  function getCustomerField(c, field) {
+    const map = {
+      id: ['customer_id'],
+      company: ['company', '公司'],
+      contact: ['contact_person', '联系人'],
+      channel: ['default_channel', 'channel', 'WhatsApp/Skype/LinkedIn'],
+      grade: ['grade', '等级']
+    };
+    for (const key of map[field] || [field]) {
+      if (c[key] !== undefined && c[key] !== null && c[key] !== '') return String(c[key]);
+    }
+    return '';
+  }
+
+  function getSearchText(c) {
+    return [
+      getCustomerField(c, 'id'),
+      getCustomerField(c, 'company'),
+      getCustomerField(c, 'contact'),
+      getCustomerField(c, 'channel'),
+      getCustomerField(c, 'grade')
+    ].join(' ');
+  }
+
+  function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, ch => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;'
+    }[ch]));
+  }
+
+  function escapeAttr(value) {
+    return escapeHtml(value).replace(/`/g, '&#96;');
   }
 
   // ── 选择客户 ──────────────────────────────────────────
+  function selectCustomerById(encodedId) {
+    const id = decodeURIComponent(encodedId);
+    const found = allCustomers.find(c => getCustomerField(c, 'id') === id);
+    if (found) selectCustomer(found);
+  }
+
   function selectCustomer(c) {
     selectedCustomer = c;
-    document.getElementById('searchInput').value = c.company + (c.contact_person ? ' · ' + c.contact_person : '');
+    const id = getCustomerField(c, 'id');
+    const company = getCustomerField(c, 'company');
+    const contact = getCustomerField(c, 'contact');
+    const channel = getCustomerField(c, 'channel');
+    document.getElementById('searchInput').value = `${contact || '无联系人'} · ${company || '无公司名'}`;
+    document.getElementById('customerSelect').value = id;
     document.getElementById('searchResults').classList.remove('show');
 
-    document.getElementById('dispId').textContent = c.customer_id || '—';
-    document.getElementById('dispCompany').textContent = c.company || '—';
-    document.getElementById('dispContact').textContent = c.contact_person || '—';
-    document.getElementById('dispChannel').textContent = c.default_channel || '—';
+    document.getElementById('dispId').textContent = id || '—';
+    document.getElementById('dispCompany').textContent = company || '—';
+    document.getElementById('dispContact').textContent = contact || '—';
+    document.getElementById('dispChannel').textContent = channel || '—';
     document.getElementById('selectedDisplay').classList.add('show');
 
     // 自动设置默认渠道
-    if (c.default_channel) {
+    if (channel) {
       const sel = document.getElementById('channel');
       for (let opt of sel.options) {
-        if (opt.value === c.default_channel) { sel.value = c.default_channel; break; }
+        if (opt.value === channel) { sel.value = channel; break; }
       }
     }
   }
@@ -600,6 +684,7 @@
   function clearCustomer() {
     selectedCustomer = null;
     document.getElementById('searchInput').value = '';
+    document.getElementById('customerSelect').value = '';
     document.getElementById('selectedDisplay').classList.remove('show');
   }
 
@@ -622,9 +707,9 @@
     const payload = {
       action: 'addContactLog',
       data: {
-        customer_id:       selectedCustomer.customer_id,
-        company:           selectedCustomer.company,
-        contact_person:    selectedCustomer.contact_person,
+        customer_id:       getCustomerField(selectedCustomer, 'id'),
+        company:           getCustomerField(selectedCustomer, 'company'),
+        contact_person:    getCustomerField(selectedCustomer, 'contact'),
         channel:           document.getElementById('channel').value,
         action_type:       document.getElementById('actionType').value,
         log_date:          document.getElementById('logDate').value,

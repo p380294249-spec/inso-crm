@@ -340,13 +340,13 @@
     <thead>
       <tr>
         <th onclick="sortBy('customer_id')">ID <span class="sort-arrow">↕</span></th>
-        <th onclick="sortBy('公司')">公司 <span class="sort-arrow">↕</span></th>
+        <th onclick="sortBy('company')">公司 <span class="sort-arrow">↕</span></th>
         <th>联系人</th>
         <th>渠道</th>
         <th>等级</th>
         <th>阶段</th>
-        <th onclick="sortBy('最后联系日期')">最近联系 <span class="sort-arrow">↕</span></th>
-        <th onclick="sortBy('下次跟进日期')">下次跟进 <span class="sort-arrow">↕</span></th>
+        <th onclick="sortBy('last_contact_date')">最近联系 <span class="sort-arrow">↕</span></th>
+        <th onclick="sortBy('next_followup_date')">下次跟进 <span class="sort-arrow">↕</span></th>
         <th></th>
       </tr>
     </thead>
@@ -368,8 +368,26 @@ const API_URL = 'https://script.google.com/macros/s/AKfycbzUR97X-G_YDEVoaMKnyrfl
 
 let allCustomers = [];
 let allLogs = [];
-let sortKey = '最后联系日期';
+let sortKey = 'last_contact_date';
 let sortAsc = false;
+
+const CUSTOMER_FIELDS = {
+  id: ['customer_id'],
+  stage: ['customer_stage', '客户阶段'],
+  grade: ['grade', '等级'],
+  company: ['company', '公司'],
+  country: ['country', '国家/地区'],
+  contact: ['contact_person', '联系人'],
+  channel: ['default_channel', 'channel', 'WhatsApp/Skype/LinkedIn'],
+  source: ['source', '来源'],
+  email: ['email', '邮箱'],
+  lastContact: ['last_contact_date', '最后联系日期'],
+  lastReply: ['last_reply_date', '最后回复日期'],
+  lastRfq: ['last_rfq_date', '最后RFQ日期'],
+  lastQuote: ['last_quote_date', '最后报价日期'],
+  nextFollowup: ['next_followup_date', '下次跟进日期'],
+  followupStatus: ['followup_status']
+};
 
 window.onload = () => {
   loadData();
@@ -402,16 +420,21 @@ function renderTable() {
   const today   = formatDate(new Date());
 
   let list = allCustomers.filter(c => {
-    if (stage && c['客户阶段'] !== stage) return false;
-    if (grade && c['等级'] !== grade) return false;
-    if (q && !`${c['公司']} ${c['联系人']} ${c.customer_id}`.toLowerCase().includes(q)) return false;
+    if (stage && getCustomerValue(c, 'stage') !== stage) return false;
+    if (grade && getCustomerValue(c, 'grade') !== grade) return false;
+    const haystack = [
+      getCustomerValue(c, 'company'),
+      getCustomerValue(c, 'contact'),
+      getCustomerValue(c, 'id')
+    ].join(' ').toLowerCase();
+    if (q && !haystack.includes(q)) return false;
     return true;
   });
 
   // 排序
   list.sort((a, b) => {
-    const va = a[sortKey] || '';
-    const vb = b[sortKey] || '';
+    const va = getCustomerValue(a, sortKey) || '';
+    const vb = getCustomerValue(b, sortKey) || '';
     return sortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
   });
 
@@ -424,24 +447,30 @@ function renderTable() {
   }
 
   document.getElementById('tableBody').innerHTML = list.map(c => {
-    const lastContact = c['最后联系日期'] || '';
-    const nextFollowup = c['下次跟进日期'] || '';
+    const customerId = getCustomerValue(c, 'id');
+    const company = getCustomerValue(c, 'company');
+    const contact = getCustomerValue(c, 'contact');
+    const channel = getCustomerValue(c, 'channel');
+    const gradeValue = getCustomerValue(c, 'grade') || 'B';
+    const stageValue = getCustomerValue(c, 'stage') || '待开发';
+    const lastContact = getCustomerValue(c, 'lastContact');
+    const nextFollowup = getCustomerValue(c, 'nextFollowup');
     const contactCls = dateClass(lastContact, today);
     const followupCls = nextFollowup < today && nextFollowup ? 'overdue' : (nextFollowup === today ? 'recent' : '');
 
     return `
-      <tr onclick="openDrawer('${c.customer_id}')">
-        <td class="td-id">${c.customer_id || '—'}</td>
-        <td class="td-company">${c['公司'] || '—'}</td>
-        <td class="td-contact">${c['联系人'] || '—'}</td>
-        <td class="td-channel">${c['WhatsApp/Skype/LinkedIn'] || '—'}</td>
-        <td><span class="grade grade-${c['等级'] || 'B'}">${c['等级'] || '—'}</span></td>
-        <td><span class="stage stage-${c['客户阶段'] || '待开发'}">${c['客户阶段'] || '—'}</span></td>
-        <td class="td-date ${contactCls}">${lastContact || '—'}</td>
-        <td class="td-date ${followupCls}">${nextFollowup || '—'}</td>
+      <tr onclick="openDrawer(decodeURIComponent('${encodeURIComponent(customerId)}'))">
+        <td class="td-id">${escapeHtml(customerId) || '—'}</td>
+        <td class="td-company">${escapeHtml(company) || '—'}</td>
+        <td class="td-contact">${escapeHtml(contact) || '—'}</td>
+        <td class="td-channel">${escapeHtml(channel) || '—'}</td>
+        <td><span class="grade grade-${escapeAttr(gradeValue)}">${escapeHtml(getCustomerValue(c, 'grade')) || '—'}</span></td>
+        <td><span class="stage stage-${escapeAttr(stageValue)}">${escapeHtml(getCustomerValue(c, 'stage')) || '—'}</span></td>
+        <td class="td-date ${contactCls}">${escapeHtml(lastContact) || '—'}</td>
+        <td class="td-date ${followupCls}">${escapeHtml(nextFollowup) || '—'}</td>
         <td onclick="event.stopPropagation()">
           <a class="btn-action btn-log-sm"
-             href="contact-log.html?customer_id=${encodeURIComponent(c.customer_id)}&company=${encodeURIComponent(c['公司']||'')}&contact=${encodeURIComponent(c['联系人']||'')}&channel=${encodeURIComponent(c['WhatsApp/Skype/LinkedIn']||'')}">
+             href="contact-log.html?customer_id=${encodeURIComponent(customerId)}&company=${encodeURIComponent(company)}&contact=${encodeURIComponent(contact)}&channel=${encodeURIComponent(channel)}">
             + 记录
           </a>
         </td>
@@ -460,12 +489,17 @@ function sortBy(key) {
 
 // ── 详情抽屉 ────────────────────────────────────────────
 function openDrawer(customerId) {
-  const c = allCustomers.find(x => x.customer_id === customerId);
+  const c = allCustomers.find(x => getCustomerValue(x, 'id') === customerId);
   if (!c) return;
 
   const logs = allLogs
     .filter(l => l.customer_id === customerId)
     .slice(0, 5);
+  const company = getCustomerValue(c, 'company');
+  const contact = getCustomerValue(c, 'contact');
+  const channel = getCustomerValue(c, 'channel');
+  const gradeValue = getCustomerValue(c, 'grade') || 'B';
+  const stageValue = getCustomerValue(c, 'stage') || '待开发';
 
   const logHtml = logs.length === 0
     ? '<div style="color:var(--text-muted);font-size:12px;font-family:var(--mono)">暂无记录</div>'
@@ -480,27 +514,27 @@ function openDrawer(customerId) {
       `).join('');
 
   document.getElementById('drawerContent').innerHTML = `
-    <div class="drawer-id">${c.customer_id}</div>
-    <div class="drawer-company">${c['公司'] || '—'}</div>
-    <div class="drawer-contact">${c['联系人'] || ''} · ${c['WhatsApp/Skype/LinkedIn'] || ''}</div>
+    <div class="drawer-id">${escapeHtml(customerId)}</div>
+    <div class="drawer-company">${escapeHtml(company) || '—'}</div>
+    <div class="drawer-contact">${escapeHtml(contact)} · ${escapeHtml(channel)}</div>
 
     <div class="drawer-section">
       <div class="drawer-section-title">客户信息</div>
-      <div class="drawer-row"><span class="drawer-key">等级</span><span class="drawer-val"><span class="grade grade-${c['等级']||'B'}">${c['等级']||'—'}</span></span></div>
-      <div class="drawer-row"><span class="drawer-key">阶段</span><span class="drawer-val"><span class="stage stage-${c['客户阶段']||'待开发'}">${c['客户阶段']||'—'}</span></span></div>
-      <div class="drawer-row"><span class="drawer-key">国家</span><span class="drawer-val">${c['国家/地区']||'—'}</span></div>
-      <div class="drawer-row"><span class="drawer-key">来源</span><span class="drawer-val">${c['来源']||'—'}</span></div>
-      <div class="drawer-row"><span class="drawer-key">Email</span><span class="drawer-val" style="font-size:11px">${c['邮箱']||'—'}</span></div>
-      <div class="drawer-row"><span class="drawer-key">WhatsApp</span><span class="drawer-val">${c['WhatsApp/Skype/LinkedIn']||'—'}</span></div>
+      <div class="drawer-row"><span class="drawer-key">等级</span><span class="drawer-val"><span class="grade grade-${escapeAttr(gradeValue)}">${escapeHtml(getCustomerValue(c, 'grade'))||'—'}</span></span></div>
+      <div class="drawer-row"><span class="drawer-key">阶段</span><span class="drawer-val"><span class="stage stage-${escapeAttr(stageValue)}">${escapeHtml(getCustomerValue(c, 'stage'))||'—'}</span></span></div>
+      <div class="drawer-row"><span class="drawer-key">国家</span><span class="drawer-val">${escapeHtml(getCustomerValue(c, 'country'))||'—'}</span></div>
+      <div class="drawer-row"><span class="drawer-key">来源</span><span class="drawer-val">${escapeHtml(getCustomerValue(c, 'source'))||'—'}</span></div>
+      <div class="drawer-row"><span class="drawer-key">Email</span><span class="drawer-val" style="font-size:11px">${escapeHtml(getCustomerValue(c, 'email'))||'—'}</span></div>
+      <div class="drawer-row"><span class="drawer-key">WhatsApp</span><span class="drawer-val">${escapeHtml(channel)||'—'}</span></div>
     </div>
 
     <div class="drawer-section">
       <div class="drawer-section-title">跟进状态</div>
-      <div class="drawer-row"><span class="drawer-key">最近联系</span><span class="drawer-val">${c['最后联系日期']||'—'}</span></div>
-      <div class="drawer-row"><span class="drawer-key">最近回复</span><span class="drawer-val">${c['最后回复日期']||'—'}</span></div>
-      <div class="drawer-row"><span class="drawer-key">最近 RFQ</span><span class="drawer-val">${c['最后RFQ日期']||'—'}</span></div>
-      <div class="drawer-row"><span class="drawer-key">最近报价</span><span class="drawer-val">${c['最后报价日期']||'—'}</span></div>
-      <div class="drawer-row"><span class="drawer-key">下次跟进</span><span class="drawer-val">${c['下次跟进日期']||'—'}</span></div>
+      <div class="drawer-row"><span class="drawer-key">最近联系</span><span class="drawer-val">${escapeHtml(getCustomerValue(c, 'lastContact'))||'—'}</span></div>
+      <div class="drawer-row"><span class="drawer-key">最近回复</span><span class="drawer-val">${escapeHtml(getCustomerValue(c, 'lastReply'))||'—'}</span></div>
+      <div class="drawer-row"><span class="drawer-key">最近 RFQ</span><span class="drawer-val">${escapeHtml(getCustomerValue(c, 'lastRfq'))||'—'}</span></div>
+      <div class="drawer-row"><span class="drawer-key">最近报价</span><span class="drawer-val">${escapeHtml(getCustomerValue(c, 'lastQuote'))||'—'}</span></div>
+      <div class="drawer-row"><span class="drawer-key">下次跟进</span><span class="drawer-val">${escapeHtml(getCustomerValue(c, 'nextFollowup'))||'—'}</span></div>
     </div>
 
     <div class="drawer-section">
@@ -509,7 +543,7 @@ function openDrawer(customerId) {
     </div>
 
     <a class="drawer-btn"
-       href="contact-log.html?customer_id=${encodeURIComponent(c.customer_id)}&company=${encodeURIComponent(c['公司']||'')}&contact=${encodeURIComponent(c['联系人']||'')}&channel=${encodeURIComponent(c['WhatsApp/Skype/LinkedIn']||'')}">
+       href="contact-log.html?customer_id=${encodeURIComponent(customerId)}&company=${encodeURIComponent(company)}&contact=${encodeURIComponent(contact)}&channel=${encodeURIComponent(channel)}">
       + 记录本次沟通
     </a>
   `;
@@ -524,6 +558,29 @@ function closeDrawer() {
 }
 
 // ── 工具函数 ────────────────────────────────────────────
+function getCustomerValue(customer, field) {
+  const keys = CUSTOMER_FIELDS[field] || [field];
+  for (const key of keys) {
+    const value = customer[key];
+    if (value !== undefined && value !== null && value !== '') return String(value);
+  }
+  return '';
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  }[ch]));
+}
+
+function escapeAttr(value) {
+  return escapeHtml(value).replace(/`/g, '&#96;');
+}
+
 function formatDate(d) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }

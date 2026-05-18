@@ -12,9 +12,12 @@
   // 判断当前页面
   const current = location.pathname.split('/').pop() || 'dashboard.html';
 
-  // 注入 CSS
-  const style = document.createElement('style');
-  style.textContent = `
+  function insertNav() {
+    if (document.getElementById('inso-nav')) return;
+
+    // 注入 CSS
+    const style = document.createElement('style');
+    style.textContent = `
     #inso-nav {
       position: sticky;
       top: 0;
@@ -70,32 +73,39 @@
     /* body 顶部留出导航高度 */
     body { padding-top: 0 !important; }
     body > *:not(#inso-nav):first-of-type { margin-top: 24px; }
-  `;
-  document.head.appendChild(style);
+    `;
+    document.head.appendChild(style);
 
-  // 构建 HTML
-  const nav = document.createElement('nav');
-  nav.id = 'inso-nav';
+    // 构建 HTML
+    const nav = document.createElement('nav');
+    nav.id = 'inso-nav';
 
-  const logo = document.createElement('a');
-  logo.className = 'nav-logo';
-  logo.href = 'dashboard.html';
-  logo.textContent = 'INSO';
-  nav.appendChild(logo);
+    const logo = document.createElement('a');
+    logo.className = 'nav-logo';
+    logo.href = 'dashboard.html';
+    logo.textContent = 'INSO';
+    nav.appendChild(logo);
 
-  const links = document.createElement('div');
-  links.className = 'nav-links';
+    const links = document.createElement('div');
+    links.className = 'nav-links';
 
-  PAGES.forEach(p => {
-    const a = document.createElement('a');
-    a.className = 'nav-link' + (current === p.href ? ' active' : '');
-    a.href = p.href;
-    a.innerHTML = `<span class="nav-icon">${p.icon}</span>${p.label}`;
-    links.appendChild(a);
-  });
+    PAGES.forEach(p => {
+      const a = document.createElement('a');
+      a.className = 'nav-link' + (current === p.href ? ' active' : '');
+      a.href = p.href;
+      a.innerHTML = `<span class="nav-icon">${p.icon}</span>${p.label}`;
+      links.appendChild(a);
+    });
 
-  nav.appendChild(links);
+    nav.appendChild(links);
 
-  // 插入到 body 第一个子元素之前
-  document.body.insertBefore(nav, document.body.firstChild);
+    // 插入到 body 第一个子元素之前
+    document.body.insertBefore(nav, document.body.firstChild);
+  }
+
+  if (document.body) {
+    insertNav();
+  } else {
+    document.addEventListener('DOMContentLoaded', insertNav);
+  }
 })();

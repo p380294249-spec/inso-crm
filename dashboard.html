@@ -330,6 +330,25 @@
 </style>
 </head>
 <body>
+<!-- ── 顶部 ── -->
+<div class="topbar">
+  <div class="topbar-left">
+    <div class="logo">INSO</div>
+    <div class="page-title">CRM DASHBOARD</div>
+  </div>
+  <div style="display:flex;align-items:center;gap:10px;">
+    <span class="date-label" id="todayLabel">—</span>
+    <button class="btn-refresh" onclick="refreshCurrent()">刷新</button>
+  </div>
+</div>
+
+<!-- ── Tab 切换 ── -->
+<div class="tabs">
+  <div class="tab active" onclick="switchTab('today')">今日</div>
+  <div class="tab" onclick="switchTab('week')">本周</div>
+  <div class="tab" onclick="switchTab('month')">本月</div>
+</div>
+
 <!-- ── 今日视图 ── -->
 <div class="view active" id="view-today">
   <div id="todayFunnel"><div class="loading">加载中</div></div>
@@ -338,12 +357,12 @@
 
 <!-- ── 本周视图 ── -->
 <div class="view" id="view-week">
-  <div id="weekChart"><div class="loading">加载中</div></div>
+  <div id="weekChart"><div class="empty-state">切换到本周后加载</div></div>
 </div>
 
 <!-- ── 本月视图 ── -->
 <div class="view" id="view-month">
-  <div id="monthChart"><div class="loading">加载中</div></div>
+  <div id="monthChart"><div class="empty-state">切换到本月后加载</div></div>
 </div>
 
 <script>
@@ -354,13 +373,20 @@ const CONTACT_PAGE  = 'contact-log.html';           // ← 联系录入页面路
 // ── 状态 ────────────────────────────────────────────
 let currentTab = 'today';
 let cache = {};
+let loadedTabs = { today: false, week: false, month: false };
 
 // ── 初始化 ────────────────────────────────────────────
-window.onload = () => {
+function initDashboard() {
   const today = new Date();
   document.getElementById('todayLabel').textContent = formatDate(today);
-  loadAll();
-};
+  loadTodayView();
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initDashboard);
+} else {
+  initDashboard();
+}
 
 function switchTab(tab) {
   currentTab = tab;
@@ -369,13 +395,31 @@ function switchTab(tab) {
   });
   document.querySelectorAll('.view').forEach(el => el.classList.remove('active'));
   document.getElementById('view-' + tab).classList.add('active');
+
+  if (tab === 'today' && !loadedTabs.today) loadTodayView();
+  if (tab === 'week' && !loadedTabs.week) loadWeek();
+  if (tab === 'month' && !loadedTabs.month) loadMonth();
 }
 
-async function loadAll() {
+async function loadTodayView() {
+  loadedTabs.today = true;
   loadToday();
   loadFollowups();
-  loadWeek();
-  loadMonth();
+}
+
+function refreshCurrent() {
+  cache = {};
+  loadedTabs[currentTab] = false;
+  if (currentTab === 'today') loadTodayView();
+  if (currentTab === 'week') loadWeek();
+  if (currentTab === 'month') loadMonth();
+}
+
+async function fetchApi(action) {
+  if (!cache[action]) {
+    cache[action] = fetch(`${API_URL}?action=${action}`).then(res => res.json());
+  }
+  return cache[action];
 }
 
 // ── 今日漏斗 ────────────────────────────────────────────
@@ -383,8 +427,7 @@ async function loadToday() {
   const el = document.getElementById('todayFunnel');
   el.innerHTML = '<div class="loading">加载中</div>';
   try {
-    const res = await fetch(`${API_URL}?action=getDashboard`);
-    const json = await res.json();
+    const json = await fetchApi('getDashboard');
     if (json.status !== 'ok') throw new Error(json.message);
     const d = json.data;
 
@@ -434,8 +477,7 @@ async function loadFollowups() {
   const el = document.getElementById('todayFollowups');
   el.innerHTML = '<div class="loading">加载中</div>';
   try {
-    const res = await fetch(`${API_URL}?action=getFollowups`);
-    const json = await res.json();
+    const json = await fetchApi('getFollowups');
     if (json.status !== 'ok') throw new Error(json.message);
 
     const items = json.data;
@@ -450,21 +492,25 @@ async function loadFollowups() {
     }
 
     const rows = items.map(c => {
-      const isOverdue = c.next_followup_date < today;
-      const isToday   = c.next_followup_date === today;
+      const followupDate = getField(c, 'next_followup_date', '下次跟进日期');
+      const company = getField(c, 'company', '公司');
+      const contact = getField(c, 'contact_person', '联系人');
+      const channel = getField(c, 'default_channel', 'WhatsApp/Skype/LinkedIn');
+      const isOverdue = followupDate < today;
+      const isToday   = followupDate === today;
       const cls = isOverdue ? 'overdue' : (isToday ? 'today' : '');
       const dateCls = isOverdue ? 'overdue' : (isToday ? 'today' : '');
-      const label = isOverdue ? '已逾期' : (isToday ? '今天' : c.next_followup_date);
+      const label = isOverdue ? '已逾期' : (isToday ? '今天' : followupDate);
 
       return `
         <div class="followup-item ${cls}">
           <span class="fi-id">${c.customer_id || '—'}</span>
           <div>
-            <div class="fi-company">${c.company || '—'}</div>
-            <div class="fi-contact">${c.contact_person || ''} · ${c.default_channel || ''}</div>
+            <div class="fi-company">${company || '—'}</div>
+            <div class="fi-contact">${contact || ''} · ${channel || ''}</div>
           </div>
           <span class="fi-date ${dateCls}">${label}</span>
-          <a class="btn-log" href="${CONTACT_PAGE}?customer_id=${encodeURIComponent(c.customer_id)}&company=${encodeURIComponent(c.company||'')}&contact=${encodeURIComponent(c.contact_person||'')}&channel=${encodeURIComponent(c.default_channel||'')}">
+          <a class="btn-log" href="${CONTACT_PAGE}?customer_id=${encodeURIComponent(c.customer_id)}&company=${encodeURIComponent(company)}&contact=${encodeURIComponent(contact)}&channel=${encodeURIComponent(channel)}">
             + 记录沟通
           </a>
         </div>
@@ -482,11 +528,11 @@ async function loadFollowups() {
 
 // ── 本周趋势 ────────────────────────────────────────────
 async function loadWeek() {
+  loadedTabs.week = true;
   const el = document.getElementById('weekChart');
   el.innerHTML = '<div class="loading">加载中</div>';
   try {
-    const res = await fetch(`${API_URL}?action=getContactLog`);
-    const json = await res.json();
+    const json = await fetchApi('getContactLog');
     if (json.status !== 'ok') throw new Error(json.message);
 
     const logs = json.data;
@@ -532,15 +578,14 @@ async function loadWeek() {
 
 // ── 本月统计 ────────────────────────────────────────────
 async function loadMonth() {
+  loadedTabs.month = true;
   const el = document.getElementById('monthChart');
   el.innerHTML = '<div class="loading">加载中</div>';
   try {
-    const [logRes, quoteRes] = await Promise.all([
-      fetch(`${API_URL}?action=getContactLog`),
-      fetch(`${API_URL}?action=getCustomers`)
+    const [logJson, custJson] = await Promise.all([
+      fetchApi('getContactLog'),
+      fetchApi('getCustomers')
     ]);
-    const logJson   = await logRes.json();
-    const custJson  = await quoteRes.json();
 
     if (logJson.status !== 'ok') throw new Error(logJson.message);
 
@@ -549,7 +594,7 @@ async function loadMonth() {
 
     const now = new Date();
     const monthPrefix = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
-    const monthLogs   = logs.filter(l => l.log_date && l.log_date.startsWith(monthPrefix));
+    const monthLogs   = logs.filter(l => normalizeDate(l.log_date).startsWith(monthPrefix));
 
     const uniqueBy = (arr, key) => [...new Set(arr.map(r => r[key]).filter(Boolean))].length;
 
@@ -574,11 +619,13 @@ async function loadMonth() {
       .slice(0, 5)
       .map(([id, cnt]) => {
         const c = custMap[id] || {};
+        const company = getField(c, 'company', '公司') || id;
+        const contact = getField(c, 'contact_person', '联系人') || '—';
         return `
           <tr>
             <td class="td-date">${id}</td>
-            <td>${c.company || id}</td>
-            <td>${c.contact_person || '—'}</td>
+            <td>${company}</td>
+            <td>${contact}</td>
             <td class="td-num">${cnt}</td>
           </tr>
         `;
@@ -632,6 +679,21 @@ function formatDate(d) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 
+function getField(row, ...keys) {
+  for (const key of keys) {
+    if (row[key] !== undefined && row[key] !== null && row[key] !== '') return String(row[key]);
+  }
+  return '';
+}
+
+function normalizeDate(value) {
+  if (!value) return '';
+  const text = String(value);
+  if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10);
+  const parsed = new Date(text);
+  return Number.isNaN(parsed.getTime()) ? text : formatDate(parsed);
+}
+
 function getLast7Days() {
   const days = [];
   for (let i = 6; i >= 0; i--) {
@@ -643,7 +705,7 @@ function getLast7Days() {
 }
 
 function computeDayStats(logs, date) {
-  const dayLogs = logs.filter(l => l.log_date === date);
+  const dayLogs = logs.filter(l => normalizeDate(l.log_date) === date);
   const unique = (arr, key) => [...new Set(arr.map(r => r[key]).filter(Boolean))].length;
   return {
     contacted: unique(dayLogs.filter(l => l.action_type === 'SENT'), 'customer_id'),
