@@ -169,13 +169,17 @@ function getFollowups() {
   const sheet = getSheet('Customers');
   const rows = sheetToObjects(sheet);
 
-  const due = rows.filter(r =>
-    r.next_followup_date &&
-    r.next_followup_date <= today &&
-    r.followup_status === 'active'
-  );
+  const due = rows.filter(r => {
+    const nextDate = getRowValue(r, ['next_followup_date', '下次跟进日期']);
+    const status = getRowValue(r, ['followup_status', '跟进状态']) || 'active';
+    return nextDate && nextDate <= today && status === 'active';
+  });
 
-  due.sort((a, b) => a.next_followup_date.localeCompare(b.next_followup_date));
+  due.sort((a, b) => {
+    const da = getRowValue(a, ['next_followup_date', '下次跟进日期']);
+    const db = getRowValue(b, ['next_followup_date', '下次跟进日期']);
+    return da.localeCompare(db);
+  });
 
   return { status: 'ok', data: due, total: due.length };
 }
@@ -277,7 +281,7 @@ function updateCustomer(data) {
     if (rows[i][idCol] === data.customer_id) {
       // 更新指定字段
       Object.keys(data).forEach(key => {
-        const col = headers.indexOf(key);
+        const col = findHeaderIndex(headers, key);
         if (col !== -1 && key !== 'customer_id') {
           sheet.getRange(i + 1, col + 1).setValue(data[key]);
         }
@@ -305,7 +309,7 @@ function updateCustomerDates(sheet, customerId, dates) {
     if (rows[i][idCol] === customerId) {
       Object.keys(dates).forEach(key => {
         if (dates[key]) {
-          const col = headers.indexOf(key);
+          const col = findHeaderIndex(headers, key);
           if (col !== -1) {
             sheet.getRange(i + 1, col + 1).setValue(dates[key]);
           }
@@ -314,6 +318,39 @@ function updateCustomerDates(sheet, customerId, dates) {
       break;
     }
   }
+}
+
+function getRowValue(row, keys) {
+  for (let i = 0; i < keys.length; i++) {
+    const value = row[keys[i]];
+    if (value !== undefined && value !== null && value !== '') return String(value);
+  }
+  return '';
+}
+
+function findHeaderIndex(headers, key) {
+  const aliases = {
+    company: ['company', '公司'],
+    contact_person: ['contact_person', '联系人'],
+    default_channel: ['default_channel', 'WhatsApp/Skype/LinkedIn'],
+    customer_stage: ['customer_stage', '客户阶段'],
+    grade: ['grade', '等级'],
+    country: ['country', '国家/地区'],
+    source: ['source', '来源'],
+    email: ['email', '邮箱'],
+    last_contact_date: ['last_contact_date', '最后联系日期'],
+    last_reply_date: ['last_reply_date', '最后回复日期'],
+    last_rfq_date: ['last_rfq_date', '最后RFQ日期'],
+    last_quote_date: ['last_quote_date', '最后报价日期'],
+    next_followup_date: ['next_followup_date', '下次跟进日期'],
+    followup_status: ['followup_status', '跟进状态']
+  };
+  const candidates = aliases[key] || [key];
+  for (let i = 0; i < candidates.length; i++) {
+    const col = headers.indexOf(candidates[i]);
+    if (col !== -1) return col;
+  }
+  return -1;
 }
 
 // 获取 Sheet（找不到则报错提示）

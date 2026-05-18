@@ -60,6 +60,27 @@
   }
   .page-title { font-family: var(--mono); font-size: 12px; color: var(--text-dim); letter-spacing: 0.08em; }
   .date-label { font-family: var(--mono); font-size: 11px; color: var(--text-dim); }
+  .top-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .btn-page {
+    background: var(--accent-dim);
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    padding: 5px 12px;
+    cursor: pointer;
+    border-radius: 1px;
+    transition: all 0.15s;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .btn-page:hover { background: var(--accent); color: #fff; }
 
   /* ── Tab 切换 ── */
   .tabs {
@@ -336,8 +357,10 @@
     <div class="logo">INSO</div>
     <div class="page-title">CRM DASHBOARD</div>
   </div>
-  <div style="display:flex;align-items:center;gap:10px;">
+  <div class="top-actions">
     <span class="date-label" id="todayLabel">—</span>
+    <a class="btn-page" href="customers.html">客户列表</a>
+    <a class="btn-page" href="contact-log.html">记录沟通</a>
     <button class="btn-refresh" onclick="refreshCurrent()">刷新</button>
   </div>
 </div>
@@ -486,7 +509,13 @@ async function loadFollowups() {
     if (items.length === 0) {
       el.innerHTML = `
         <div class="section-label">今日待跟进 <span class="badge ok">0</span></div>
-        <div class="empty-state">今天没有待跟进客户 ✓</div>
+        <div class="empty-state">
+          今天没有待跟进客户 ✓
+          <div style="margin-top:14px;">
+            <a class="btn-log" href="contact-log.html">+ 记录沟通</a>
+            <a class="btn-log" href="customers.html" style="margin-left:8px;">客户列表</a>
+          </div>
+        </div>
       `;
       return;
     }
