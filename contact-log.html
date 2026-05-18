@@ -57,6 +57,22 @@
  color: var(--text-dim);
  letter-spacing: 0.08em;
  }
+ .nav { display: flex; gap: 2px; margin-left: 12px; }
+ .nav-link {
+ font-family: var(--mono);
+ font-size: 11px;
+ letter-spacing: 0.08em;
+ color: var(--text-dim);
+ text-decoration: none;
+ padding: 6px 12px;
+ border-radius: 2px;
+ text-transform: uppercase;
+ transition: all 0.15s;
+ }
+ .nav-link:hover { color: var(--text); background: var(--surface); }
+ .nav-link.active { color: var(--accent); background: var(--accent-dim); }
+ .nav-link.disabled { opacity: 0.4; cursor: not-allowed; pointer-events: none; }
+ .logo { text-decoration: none; display: inline-block; }
 
  /* ── 卡片容器 ── */
  .card {
@@ -324,8 +340,12 @@
 
 <!-- 顶部导航 -->
 <div class="topbar">
- <div class="logo">INSO</div>
- <div class="page-title">/ 记录沟通</div>
+ <a href="dashboard.html" class="logo">INSO</a>
+ <nav class="nav">
+ <a href="dashboard.html" class="nav-link">Dashboard</a>
+ <a href="contact-log.html" class="nav-link active">记录沟通</a>
+ <a href="#" class="nav-link disabled" title="即将上线">客户列表</a>
+ </nav>
 </div>
 
 <!-- Step 1: 搜索客户 -->
