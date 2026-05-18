@@ -340,13 +340,13 @@
     <thead>
       <tr>
         <th onclick="sortBy('customer_id')">ID <span class="sort-arrow">↕</span></th>
-        <th onclick="sortBy('company')">公司 <span class="sort-arrow">↕</span></th>
+        <th onclick="sortBy('公司')">公司 <span class="sort-arrow">↕</span></th>
         <th>联系人</th>
         <th>渠道</th>
         <th>等级</th>
         <th>阶段</th>
-        <th onclick="sortBy('last_contact_date')">最近联系 <span class="sort-arrow">↕</span></th>
-        <th onclick="sortBy('next_followup_date')">下次跟进 <span class="sort-arrow">↕</span></th>
+        <th onclick="sortBy('最后联系日期')">最近联系 <span class="sort-arrow">↕</span></th>
+        <th onclick="sortBy('下次跟进日期')">下次跟进 <span class="sort-arrow">↕</span></th>
         <th></th>
       </tr>
     </thead>
@@ -368,7 +368,7 @@ const API_URL = 'https://script.google.com/macros/s/AKfycbzUR97X-G_YDEVoaMKnyrfl
 
 let allCustomers = [];
 let allLogs = [];
-let sortKey = 'last_contact_date';
+let sortKey = '最后联系日期';
 let sortAsc = false;
 
 window.onload = () => {
@@ -402,9 +402,9 @@ function renderTable() {
   const today   = formatDate(new Date());
 
   let list = allCustomers.filter(c => {
-    if (stage && c.customer_stage !== stage) return false;
-    if (grade && c.grade !== grade) return false;
-    if (q && !`${c.company} ${c.contact_person} ${c.customer_id}`.toLowerCase().includes(q)) return false;
+    if (stage && c['客户阶段'] !== stage) return false;
+    if (grade && c['等级'] !== grade) return false;
+    if (q && !`${c['公司']} ${c['联系人']} ${c.customer_id}`.toLowerCase().includes(q)) return false;
     return true;
   });
 
@@ -424,24 +424,24 @@ function renderTable() {
   }
 
   document.getElementById('tableBody').innerHTML = list.map(c => {
-    const lastContact = c.last_contact_date || '';
-    const nextFollowup = c.next_followup_date || '';
+    const lastContact = c['最后联系日期'] || '';
+    const nextFollowup = c['下次跟进日期'] || '';
     const contactCls = dateClass(lastContact, today);
     const followupCls = nextFollowup < today && nextFollowup ? 'overdue' : (nextFollowup === today ? 'recent' : '');
 
     return `
       <tr onclick="openDrawer('${c.customer_id}')">
         <td class="td-id">${c.customer_id || '—'}</td>
-        <td class="td-company">${c.company || '—'}</td>
-        <td class="td-contact">${c.contact_person || '—'}</td>
-        <td class="td-channel">${c.default_channel || '—'}</td>
-        <td><span class="grade grade-${c.grade || 'B'}">${c.grade || '—'}</span></td>
-        <td><span class="stage stage-${c.customer_stage || '待开发'}">${c.customer_stage || '—'}</span></td>
+        <td class="td-company">${c['公司'] || '—'}</td>
+        <td class="td-contact">${c['联系人'] || '—'}</td>
+        <td class="td-channel">${c['WhatsApp/Skype/LinkedIn'] || '—'}</td>
+        <td><span class="grade grade-${c['等级'] || 'B'}">${c['等级'] || '—'}</span></td>
+        <td><span class="stage stage-${c['客户阶段'] || '待开发'}">${c['客户阶段'] || '—'}</span></td>
         <td class="td-date ${contactCls}">${lastContact || '—'}</td>
         <td class="td-date ${followupCls}">${nextFollowup || '—'}</td>
         <td onclick="event.stopPropagation()">
           <a class="btn-action btn-log-sm"
-             href="contact-log.html?customer_id=${encodeURIComponent(c.customer_id)}&company=${encodeURIComponent(c.company||'')}&contact=${encodeURIComponent(c.contact_person||'')}&channel=${encodeURIComponent(c.default_channel||'')}">
+             href="contact-log.html?customer_id=${encodeURIComponent(c.customer_id)}&company=${encodeURIComponent(c['公司']||'')}&contact=${encodeURIComponent(c['联系人']||'')}&channel=${encodeURIComponent(c['WhatsApp/Skype/LinkedIn']||'')}">
             + 记录
           </a>
         </td>
@@ -481,26 +481,26 @@ function openDrawer(customerId) {
 
   document.getElementById('drawerContent').innerHTML = `
     <div class="drawer-id">${c.customer_id}</div>
-    <div class="drawer-company">${c.company || '—'}</div>
-    <div class="drawer-contact">${c.contact_person || ''} · ${c.default_channel || ''}</div>
+    <div class="drawer-company">${c['公司'] || '—'}</div>
+    <div class="drawer-contact">${c['联系人'] || ''} · ${c['WhatsApp/Skype/LinkedIn'] || ''}</div>
 
     <div class="drawer-section">
       <div class="drawer-section-title">客户信息</div>
-      <div class="drawer-row"><span class="drawer-key">等级</span><span class="drawer-val"><span class="grade grade-${c.grade||'B'}">${c.grade||'—'}</span></span></div>
-      <div class="drawer-row"><span class="drawer-key">阶段</span><span class="drawer-val"><span class="stage stage-${c.customer_stage||'待开发'}">${c.customer_stage||'—'}</span></span></div>
-      <div class="drawer-row"><span class="drawer-key">国家</span><span class="drawer-val">${c.country||'—'}</span></div>
-      <div class="drawer-row"><span class="drawer-key">来源</span><span class="drawer-val">${c.source||'—'}</span></div>
-      <div class="drawer-row"><span class="drawer-key">Email</span><span class="drawer-val" style="font-size:11px">${c.email||'—'}</span></div>
-      <div class="drawer-row"><span class="drawer-key">WhatsApp</span><span class="drawer-val">${c.whatsapp||'—'}</span></div>
+      <div class="drawer-row"><span class="drawer-key">等级</span><span class="drawer-val"><span class="grade grade-${c['等级']||'B'}">${c['等级']||'—'}</span></span></div>
+      <div class="drawer-row"><span class="drawer-key">阶段</span><span class="drawer-val"><span class="stage stage-${c['客户阶段']||'待开发'}">${c['客户阶段']||'—'}</span></span></div>
+      <div class="drawer-row"><span class="drawer-key">国家</span><span class="drawer-val">${c['国家/地区']||'—'}</span></div>
+      <div class="drawer-row"><span class="drawer-key">来源</span><span class="drawer-val">${c['来源']||'—'}</span></div>
+      <div class="drawer-row"><span class="drawer-key">Email</span><span class="drawer-val" style="font-size:11px">${c['邮箱']||'—'}</span></div>
+      <div class="drawer-row"><span class="drawer-key">WhatsApp</span><span class="drawer-val">${c['WhatsApp/Skype/LinkedIn']||'—'}</span></div>
     </div>
 
     <div class="drawer-section">
       <div class="drawer-section-title">跟进状态</div>
-      <div class="drawer-row"><span class="drawer-key">最近联系</span><span class="drawer-val">${c.last_contact_date||'—'}</span></div>
-      <div class="drawer-row"><span class="drawer-key">最近回复</span><span class="drawer-val">${c.last_reply_date||'—'}</span></div>
-      <div class="drawer-row"><span class="drawer-key">最近 RFQ</span><span class="drawer-val">${c.last_rfq_date||'—'}</span></div>
-      <div class="drawer-row"><span class="drawer-key">最近报价</span><span class="drawer-val">${c.last_quote_date||'—'}</span></div>
-      <div class="drawer-row"><span class="drawer-key">下次跟进</span><span class="drawer-val">${c.next_followup_date||'—'}</span></div>
+      <div class="drawer-row"><span class="drawer-key">最近联系</span><span class="drawer-val">${c['最后联系日期']||'—'}</span></div>
+      <div class="drawer-row"><span class="drawer-key">最近回复</span><span class="drawer-val">${c['最后回复日期']||'—'}</span></div>
+      <div class="drawer-row"><span class="drawer-key">最近 RFQ</span><span class="drawer-val">${c['最后RFQ日期']||'—'}</span></div>
+      <div class="drawer-row"><span class="drawer-key">最近报价</span><span class="drawer-val">${c['最后报价日期']||'—'}</span></div>
+      <div class="drawer-row"><span class="drawer-key">下次跟进</span><span class="drawer-val">${c['下次跟进日期']||'—'}</span></div>
     </div>
 
     <div class="drawer-section">
@@ -509,7 +509,7 @@ function openDrawer(customerId) {
     </div>
 
     <a class="drawer-btn"
-       href="contact-log.html?customer_id=${encodeURIComponent(c.customer_id)}&company=${encodeURIComponent(c.company||'')}&contact=${encodeURIComponent(c.contact_person||'')}&channel=${encodeURIComponent(c.default_channel||'')}">
+       href="contact-log.html?customer_id=${encodeURIComponent(c.customer_id)}&company=${encodeURIComponent(c['公司']||'')}&contact=${encodeURIComponent(c['联系人']||'')}&channel=${encodeURIComponent(c['WhatsApp/Skype/LinkedIn']||'')}">
       + 记录本次沟通
     </a>
   `;
