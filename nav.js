@@ -4,13 +4,13 @@
 
 (function () {
   const PAGES = [
-    { label: 'Dashboard',  href: 'dashboard.html',    icon: '▤' },
-    { label: '客户列表',    href: 'customers.html',    icon: '◫' },
     { label: '记录沟通',    href: 'contact-log.html',  icon: '✎' },
+    { label: '客户列表',    href: 'customers.html',    icon: '◫' },
+    { label: 'Dashboard',  href: 'dashboard.html',    icon: '▤' },
   ];
 
   // 判断当前页面
-  const current = location.pathname.split('/').pop() || 'dashboard.html';
+  const current = location.pathname.split('/').pop() || 'contact-log.html';
 
   function insertNav() {
     if (document.getElementById('inso-nav')) return;
@@ -82,7 +82,7 @@
 
     const logo = document.createElement('a');
     logo.className = 'nav-logo';
-    logo.href = 'dashboard.html';
+    logo.href = 'contact-log.html';
     logo.textContent = 'INSO';
     nav.appendChild(logo);
 

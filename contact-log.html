@@ -491,7 +491,7 @@
   let allCustomers = [];
 
   // ── 初始化 ──────────────────────────────────────────
-  window.onload = () => {
+  function initContactLog() {
     // 设置今天日期
     const today = new Date().toISOString().split('T')[0];
     document.getElementById('logDate').value = today;
@@ -523,7 +523,13 @@
         document.getElementById('searchResults').classList.remove('show');
       }
     });
-  };
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initContactLog);
+  } else {
+    initContactLog();
+  }
 
   async function loadCustomers() {
     try {
