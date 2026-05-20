@@ -447,20 +447,7 @@
 
   <hr class="divider">
 
-  <div class="form-row">
-    <div class="field">
-      <label class="field-label">Result 状态</label>
-      <select id="result">
-        <option value="已触达">已触达</option>
-        <option value="已回复">已回复</option>
-        <option value="有需求">有需求</option>
-        <option value="已发RFQ">已发RFQ</option>
-        <option value="已报价">已报价</option>
-        <option value="已成交">已成交</option>
-        <option value="无回复">无回复</option>
-        <option value="无效客户">无效客户</option>
-      </select>
-    </div>
+  <div class="form-row single">
     <div class="field">
       <label class="field-label">下次跟进日期</label>
       <input type="date" id="nextFollowup">
@@ -722,7 +709,7 @@
         my_message:        document.getElementById('myMessage').value,
         customer_reply:    document.getElementById('customerReply').value,
         ai_summary:        document.getElementById('aiSummary').value,
-        result:            document.getElementById('result').value,
+        result:            getResultFromToggles(),
         has_reply:         toggleState.has_reply ? 'TRUE' : 'FALSE',
         has_demand:        toggleState.has_demand ? 'TRUE' : 'FALSE',
         has_rfq:           toggleState.has_rfq ? 'TRUE' : 'FALSE',
@@ -763,13 +750,20 @@
     document.getElementById('remark').value = '';
     document.getElementById('nextFollowup').value = '';
     document.getElementById('actionType').value = 'SENT';
-    document.getElementById('result').value = '已触达';
 
     // 重置 toggles
     Object.keys(toggleState).forEach(k => toggleState[k] = false);
     ['togReply','togDemand','togRfq','togQuote'].forEach(id =>
       document.getElementById(id).classList.remove('active')
     );
+  }
+
+  function getResultFromToggles() {
+    if (toggleState.has_quote) return '已报价';
+    if (toggleState.has_rfq) return '有询价';
+    if (toggleState.has_demand) return '有需求';
+    if (toggleState.has_reply) return '有回复';
+    return document.getElementById('actionType').value === 'NO_REPLY' ? '无回复' : '已触达';
   }
 
   // ── Toast 提示 ──────────────────────────────────────────

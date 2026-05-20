@@ -244,6 +244,7 @@ function addContactLog(data) {
     last_contact_date: logDate,
     last_reply_date: data.has_reply === 'TRUE' ? logDate : null,
     last_rfq_date: data.has_rfq === 'TRUE' ? logDate : null,
+    customer_stage: getStageFromContactLog(data),
     next_followup_date: data.next_followup_date || null
   });
 
@@ -346,7 +347,20 @@ function setupQuoteWorkflow() {
     'closed'
   ]);
 
+  setupCustomerStageDropdown();
+
   return { status: 'ok', message: 'Quote_Log dropdowns updated' };
+}
+
+function setupCustomerStageDropdown() {
+  const sheet = getSheet('Customers');
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  applyDropdown(sheet, headers, 'customer_stage', [
+    '待开发',
+    '有回复',
+    '有询价',
+    '有成交'
+  ]);
 }
 
 function ensureQuoteWorkflowHeaders(sheet) {
@@ -415,11 +429,13 @@ function syncQuoteToCustomer(quote, ss) {
   };
 
   if (quoteStatus === '已成交') {
-    updates.customer_stage = '已合作';
+    updates.customer_stage = '有成交';
   } else if (quoteStatus === '丢单') {
     updates.followup_status = 'closed';
-  } else if (quoteStatus === '已报给客户' || quoteStatus === '已报价') {
-    updates.customer_stage = '已开发';
+  } else if (quoteStatus === '已报给客户' || quoteStatus === '已报价' || quoteStatus === '采购已报价') {
+    updates.customer_stage = '有询价';
+  } else if (quoteStatus === '收到报价' || quoteStatus === '已发采购') {
+    updates.customer_stage = '有询价';
   }
 
   updateCustomerDates(custSheet, customerId, updates);
@@ -486,6 +502,17 @@ function getRowValue(row, keys) {
     if (value !== undefined && value !== null && value !== '') return String(value);
   }
   return '';
+}
+
+function getStageFromContactLog(data) {
+  if (data.result === '已成交') return '有成交';
+  if (data.has_quote === 'TRUE' || data.has_rfq === 'TRUE' || data.result === '有询价' || data.result === '已报价') {
+    return '有询价';
+  }
+  if (data.has_reply === 'TRUE' || data.has_demand === 'TRUE' || data.result === '有回复' || data.result === '有需求') {
+    return '有回复';
+  }
+  return null;
 }
 
 function findHeaderIndex(headers, key) {
