@@ -8,19 +8,21 @@
 <script src="nav.js"></script>
 <style>
   :root {
-    --bg: #0d0f11;
-    --surface: #141618;
-    --border: #242628;
-    --border-active: #3a7bd5;
-    --text: #e8eaed;
-    --text-dim: #6b7280;
-    --text-muted: #374151;
-    --accent: #3a7bd5;
-    --accent-dim: rgba(58,123,213,0.12);
-    --green: #22c55e;
-    --green-dim: rgba(34,197,94,0.1);
-    --yellow: #f59e0b;
-    --red: #ef4444;
+    --bg: #f6f7fb;
+    --surface: #ffffff;
+    --surface2: #f1f5f9;
+    --border: #dde3ea;
+    --border-active: #2563eb;
+    --text: #18202f;
+    --text-dim: #64748b;
+    --text-muted: #9aa5b1;
+    --accent: #2563eb;
+    --accent-dim: rgba(37,99,235,0.08);
+    --green: #16a34a;
+    --green-dim: rgba(22,163,74,0.08);
+    --yellow: #d97706;
+    --red: #dc2626;
+    --shadow: 0 12px 32px rgba(15,23,42,0.06);
     --mono: 'IBM Plex Mono', monospace;
     --sans: 'Noto Sans SC', sans-serif;
   }
@@ -34,6 +36,8 @@
     font-weight: 300;
     min-height: 100vh;
     padding: 24px 16px 60px;
+    max-width: 860px;
+    margin: 0 auto;
   }
 
   /* ── 顶部导航 ── */
@@ -63,9 +67,10 @@
   .card {
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 2px;
+    border-radius: 8px;
     padding: 24px;
     margin-bottom: 16px;
+    box-shadow: var(--shadow);
   }
   .card-label {
     font-family: var(--mono);
@@ -90,10 +95,10 @@
     font-weight: 400;
     padding: 12px 16px 12px 42px;
     outline: none;
-    border-radius: 2px;
-    transition: border-color 0.15s;
+    border-radius: 8px;
+    transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
   }
-  .search-input:focus { border-color: var(--border-active); }
+  .search-input:focus { border-color: var(--border-active); background: #fff; box-shadow: 0 0 0 3px var(--accent-dim); }
   .search-input::placeholder { color: var(--text-muted); }
   .search-icon {
     position: absolute;
@@ -117,9 +122,10 @@
     position: absolute;
     top: calc(100% + 4px);
     left: 0; right: 0;
-    background: #1a1c1e;
+    background: #fff;
     border: 1px solid var(--border-active);
-    border-radius: 2px;
+    border-radius: 8px;
+    box-shadow: 0 18px 48px rgba(15,23,42,0.12);
     z-index: 100;
     max-height: 240px;
     overflow-y: auto;
@@ -149,10 +155,10 @@
     font-family: var(--mono);
     font-size: 10px;
     padding: 2px 6px;
-    border-radius: 1px;
+    border-radius: 6px;
   }
   .grade-S { background: rgba(245,158,11,0.15); color: #f59e0b; }
-  .grade-A { background: rgba(58,123,213,0.15); color: #3a7bd5; }
+  .grade-A { background: var(--accent-dim); color: var(--accent); }
   .grade-B { background: rgba(107,114,128,0.15); color: #9ca3af; }
   .no-results { padding: 16px; text-align: center; color: var(--text-dim); font-size: 13px; }
 
@@ -161,7 +167,7 @@
     display: none;
     background: var(--accent-dim);
     border: 1px solid var(--accent);
-    border-radius: 2px;
+    border-radius: 8px;
     padding: 14px 16px;
     margin-top: 12px;
     gap: 16px;
@@ -186,7 +192,7 @@
     font-size: 12px;
     padding: 4px 10px;
     cursor: pointer;
-    border-radius: 1px;
+    border-radius: 6px;
     font-family: var(--mono);
     transition: all 0.15s;
   }
@@ -221,14 +227,14 @@
     font-weight: 400;
     padding: 10px 12px;
     outline: none;
-    border-radius: 2px;
-    transition: border-color 0.15s;
+    border-radius: 8px;
+    transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
     width: 100%;
   }
-  input:focus, select:focus, textarea:focus { border-color: var(--border-active); }
+  input:focus, select:focus, textarea:focus { border-color: var(--border-active); background: #fff; box-shadow: 0 0 0 3px var(--accent-dim); }
   input::placeholder, textarea::placeholder { color: var(--text-muted); }
   select { cursor: pointer; }
-  select option { background: #1a1c1e; }
+  select option { background: #fff; color: var(--text); }
   textarea { resize: vertical; min-height: 90px; line-height: 1.6; }
 
   /* ── 勾选区 ── */
@@ -250,7 +256,7 @@
     letter-spacing: 0.08em;
     padding: 7px 14px;
     cursor: pointer;
-    border-radius: 1px;
+    border-radius: 8px;
     transition: all 0.15s;
     user-select: none;
   }
@@ -281,11 +287,11 @@
     text-transform: uppercase;
     padding: 14px;
     cursor: pointer;
-    border-radius: 2px;
+    border-radius: 8px;
     margin-top: 8px;
-    transition: opacity 0.15s, transform 0.1s;
+    transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
   }
-  .btn-submit:hover { opacity: 0.88; }
+  .btn-submit:hover { background: #1d4ed8; box-shadow: 0 10px 24px rgba(37,99,235,0.22); }
   .btn-submit:active { transform: scale(0.99); }
   .btn-submit:disabled { opacity: 0.4; cursor: not-allowed; }
 
@@ -296,13 +302,14 @@
     bottom: 24px;
     left: 50%;
     transform: translateX(-50%);
-    background: #1a1c1e;
+    background: #fff;
     border: 1px solid var(--green);
     color: var(--green);
     font-family: var(--mono);
     font-size: 12px;
     padding: 12px 20px;
-    border-radius: 2px;
+    border-radius: 8px;
+    box-shadow: 0 18px 48px rgba(15,23,42,0.12);
     z-index: 999;
     letter-spacing: 0.08em;
   }

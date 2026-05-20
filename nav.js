@@ -22,25 +22,27 @@
       position: sticky;
       top: 0;
       z-index: 200;
-      background: rgba(13,15,17,0.92);
-      backdrop-filter: blur(8px);
-      border-bottom: 1px solid #242628;
+      background: rgba(255,255,255,0.88);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid #dde3ea;
       display: flex;
       align-items: center;
       padding: 0 20px;
-      height: 48px;
+      height: 56px;
       gap: 0;
     }
     #inso-nav .nav-logo {
       font-family: 'IBM Plex Mono', monospace;
       font-size: 11px;
       letter-spacing: 0.15em;
-      color: #3a7bd5;
-      border: 1px solid #3a7bd5;
-      padding: 3px 9px;
+      color: #2563eb;
+      border: 1px solid #bfdbfe;
+      background: #eff6ff;
+      padding: 4px 10px;
       margin-right: 20px;
       text-decoration: none;
       flex-shrink: 0;
+      border-radius: 8px;
     }
     #inso-nav .nav-links {
       display: flex;
@@ -52,10 +54,10 @@
       font-family: 'IBM Plex Mono', monospace;
       font-size: 11px;
       letter-spacing: 0.08em;
-      color: #6b7280;
+      color: #64748b;
       text-decoration: none;
       padding: 0 14px;
-      height: 48px;
+      height: 56px;
       display: flex;
       align-items: center;
       gap: 6px;
@@ -63,10 +65,10 @@
       transition: color 0.15s, border-color 0.15s;
       white-space: nowrap;
     }
-    #inso-nav .nav-link:hover { color: #e8eaed; }
+    #inso-nav .nav-link:hover { color: #18202f; background: #f1f5f9; }
     #inso-nav .nav-link.active {
-      color: #3a7bd5;
-      border-bottom-color: #3a7bd5;
+      color: #2563eb;
+      border-bottom-color: #2563eb;
     }
     #inso-nav .nav-icon { font-size: 13px; }
 
