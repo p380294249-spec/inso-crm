@@ -318,6 +318,7 @@ function onEdit(e) {
 
 function setupQuoteWorkflow() {
   const sheet = getSheet('Quote_Log');
+  ensureQuoteWorkflowHeaders(sheet);
   const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
 
   applyDropdown(sheet, headers, 'quote_status', [
@@ -346,6 +347,35 @@ function setupQuoteWorkflow() {
   ]);
 
   return { status: 'ok', message: 'Quote_Log dropdowns updated' };
+}
+
+function ensureQuoteWorkflowHeaders(sheet) {
+  const defaultHeaders = [
+    'quote_date',
+    'customer_id',
+    'company',
+    'contact_person',
+    'quote_status',
+    'rfq_status',
+    'followup_status',
+    'mpn',
+    'qty',
+    'quoted_price',
+    'remark'
+  ];
+
+  if (sheet.getLastColumn() < 1) {
+    sheet.getRange(1, 1, 1, defaultHeaders.length).setValues([defaultHeaders]);
+    return;
+  }
+
+  let headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  defaultHeaders.forEach(key => {
+    if (findHeaderIndex(headers, key) === -1) {
+      sheet.getRange(1, sheet.getLastColumn() + 1).setValue(key);
+      headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    }
+  });
 }
 
 function syncAllQuotesToCustomers() {
