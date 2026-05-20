@@ -41,10 +41,6 @@ function doGet(e) {
       return respond(setupQuoteWorkflow());
     }
 
-    if (action === 'installQuoteSyncTrigger') {
-      return respond(installQuoteSyncTrigger());
-    }
-
     return respond({ status: 'error', message: 'Unknown action: ' + action });
 
   } catch (err) {
@@ -78,10 +74,6 @@ function doPost(e) {
 
     if (action === 'setupQuoteWorkflow') {
       return respond(setupQuoteWorkflow());
-    }
-
-    if (action === 'installQuoteSyncTrigger') {
-      return respond(installQuoteSyncTrigger());
     }
 
     return respond({ status: 'error', message: 'Unknown action: ' + action });
@@ -321,20 +313,7 @@ function onEdit(e) {
   if (watchedCols.length > 0 && watchedCols.indexOf(e.range.getColumn()) === -1) return;
 
   const rowObj = sheetRowToObject(sheet, e.range.getRow());
-  syncQuoteToCustomer(rowObj);
-}
-
-function installQuoteSyncTrigger() {
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  const triggers = ScriptApp.getProjectTriggers();
-  triggers.forEach(trigger => {
-    if (trigger.getHandlerFunction() === 'onEdit') {
-      ScriptApp.deleteTrigger(trigger);
-    }
-  });
-  ScriptApp.newTrigger('onEdit').forSpreadsheet(ss).onEdit().create();
-  setupQuoteWorkflow();
-  return { status: 'ok', message: 'Quote_Log onEdit sync trigger installed' };
+  syncQuoteToCustomer(rowObj, e.source);
 }
 
 function setupQuoteWorkflow() {
@@ -370,13 +349,14 @@ function setupQuoteWorkflow() {
 }
 
 function syncAllQuotesToCustomers() {
-  const sheet = getSheet('Quote_Log');
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = ss.getSheetByName('Quote_Log');
   const rows = sheetToObjects(sheet);
   let updated = 0;
   const skipped = [];
 
   rows.forEach(row => {
-    const result = syncQuoteToCustomer(row);
+    const result = syncQuoteToCustomer(row, ss);
     if (result.updated) {
       updated++;
     } else {
@@ -387,9 +367,10 @@ function syncAllQuotesToCustomers() {
   return { status: 'ok', updated, skipped_count: skipped.length, skipped };
 }
 
-function syncQuoteToCustomer(quote) {
-  const custSheet = getSheet('Customers');
-  const customerId = resolveQuoteCustomerId(quote);
+function syncQuoteToCustomer(quote, ss) {
+  const spreadsheet = ss || SpreadsheetApp.openById(SPREADSHEET_ID);
+  const custSheet = spreadsheet.getSheetByName('Customers');
+  const customerId = resolveQuoteCustomerId(quote, spreadsheet);
   if (!customerId) {
     return { updated: false, reason: '找不到客户: ' + getRowValue(quote, ['company', '公司', 'contact_person', '联系人']) };
   }
@@ -534,7 +515,7 @@ function applyDropdown(sheet, headers, key, values) {
   sheet.getRange(2, col + 1, maxRows, 1).setDataValidation(rule);
 }
 
-function resolveQuoteCustomerId(quote) {
+function resolveQuoteCustomerId(quote, ss) {
   const directId = getRowValue(quote, ['customer_id']);
   if (directId) return directId;
 
@@ -542,7 +523,8 @@ function resolveQuoteCustomerId(quote) {
   const contact = getRowValue(quote, ['contact_person', '联系人']).toLowerCase();
   if (!company && !contact) return '';
 
-  const customers = sheetToObjects(getSheet('Customers'));
+  const spreadsheet = ss || SpreadsheetApp.openById(SPREADSHEET_ID);
+  const customers = sheetToObjects(spreadsheet.getSheetByName('Customers'));
   const exact = customers.find(c =>
     (!company || getRowValue(c, ['company', '公司']).toLowerCase() === company) &&
     (!contact || getRowValue(c, ['contact_person', '联系人']).toLowerCase() === contact)
