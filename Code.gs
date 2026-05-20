@@ -284,6 +284,16 @@ function addQuote(data) {
     rfq_status: data.rfq_status || '',
     followup_status: data.followup_status || '待跟进'
   });
+  appendQuoteStatusContactLog({
+    quote_date: quoteDate,
+    customer_id: data.customer_id || '',
+    company: data.company || '',
+    contact_person: data.contact_person || '',
+    quote_status: data.quote_status || '已报价',
+    rfq_status: data.rfq_status || '',
+    followup_status: data.followup_status || '待跟进',
+    remark: data.remark || ''
+  }, data.quote_status || '已报价', sheet.getLastRow());
 
   return { status: 'ok' };
 }
@@ -315,6 +325,12 @@ function onEdit(e) {
 
   const rowObj = sheetRowToObject(sheet, e.range.getRow());
   syncQuoteToCustomer(rowObj, e.source);
+
+  const quoteStatusCol = findHeaderIndex(headers, 'quote_status') + 1;
+  const statusChanged = e.range.getColumn() === quoteStatusCol && e.value && e.value !== e.oldValue;
+  if (statusChanged && isMeaningfulQuoteStatus(e.value)) {
+    appendQuoteStatusContactLog(rowObj, e.value, e.range.getRow(), e.source);
+  }
 }
 
 function setupQuoteWorkflow() {
@@ -440,6 +456,59 @@ function syncQuoteToCustomer(quote, ss) {
 
   updateCustomerDates(custSheet, customerId, updates);
   return { updated: true, customer_id: customerId, quote_status: quoteStatus };
+}
+
+function appendQuoteStatusContactLog(quote, rawStatus, sourceRow, ss) {
+  const quoteStatus = normalizeQuoteStatus(rawStatus || getRowValue(quote, ['quote_status', '报价状态']));
+  if (!isMeaningfulQuoteStatus(quoteStatus)) return { logged: false, reason: 'status ignored' };
+
+  const spreadsheet = ss || SpreadsheetApp.openById(SPREADSHEET_ID);
+  const customerId = resolveQuoteCustomerId(quote, spreadsheet);
+  if (!customerId) return { logged: false, reason: 'customer not found' };
+
+  const marker = 'AUTO_QUOTE_SYNC row=' + sourceRow + ' status=' + quoteStatus;
+  const logSheet = spreadsheet.getSheetByName('Contact_Log');
+  const existingLogs = sheetToObjects(logSheet);
+  const alreadyLogged = existingLogs.some(log => getRowValue(log, ['remark', '备注']).indexOf(marker) !== -1);
+  if (alreadyLogged) return { logged: false, reason: 'duplicate' };
+
+  const customer = getCustomerById(spreadsheet, customerId);
+  const now = new Date();
+  const quoteDate = getRowValue(quote, ['quote_date', '报价日期']) || formatDate(now);
+  const logTime = formatTime(now);
+  const logId = 'LOG-' + String(logSheet.getLastRow()).padStart(6, '0');
+  const actionType = getQuoteActionType(quoteStatus);
+  const result = getQuoteLogResult(quoteStatus);
+  const hasQuote = quoteStatus === '已报给客户' || quoteStatus === '采购已报价' || quoteStatus === '已成交';
+  const hasRfq = quoteStatus !== '待跟进';
+  const company = getRowValue(quote, ['company', '公司']) || getRowValue(customer, ['company', '公司']);
+  const contactPerson = getRowValue(quote, ['contact_person', '联系人']) || getRowValue(customer, ['contact_person', '联系人']);
+  const channel = getRowValue(customer, ['default_channel', 'WhatsApp/Skype/LinkedIn']);
+  const note = buildQuoteAutoLogNote(quoteStatus, quote);
+
+  logSheet.appendRow([
+    logId,
+    quoteDate,
+    logTime,
+    customerId,
+    company,
+    contactPerson,
+    channel,
+    actionType,
+    note,
+    '',
+    note,
+    result,
+    'TRUE',
+    'FALSE',
+    hasRfq ? 'TRUE' : 'FALSE',
+    hasQuote ? 'TRUE' : 'FALSE',
+    '',
+    'AUTO',
+    marker + (getRowValue(quote, ['remark', '备注']) ? ' | ' + getRowValue(quote, ['remark', '备注']) : '')
+  ]);
+
+  return { logged: true, log_id: logId };
 }
 
 // ============================================================
@@ -609,6 +678,51 @@ function normalizeFollowupStatus(quoteStatus, existingStatus) {
   if (quoteStatus === '已报给客户' || quoteStatus === '采购已报价') return '已报价待跟进';
   if (quoteStatus === '已发采购' || quoteStatus === '收到报价') return 'active';
   return existingStatus || 'active';
+}
+
+function isMeaningfulQuoteStatus(status) {
+  const value = normalizeQuoteStatus(status);
+  return [
+    '收到报价',
+    '已发采购',
+    '采购已报价',
+    '已报给客户',
+    '已成交',
+    '丢单'
+  ].indexOf(value) !== -1;
+}
+
+function getQuoteActionType(status) {
+  const value = normalizeQuoteStatus(status);
+  if (value === '已成交') return 'ORDER_WON';
+  if (value === '已报给客户' || value === '采购已报价') return 'QUOTED';
+  if (value === '丢单') return 'LOST';
+  return 'FOLLOW_UP';
+}
+
+function getQuoteLogResult(status) {
+  const value = normalizeQuoteStatus(status);
+  if (value === '已成交') return '已成交';
+  if (value === '丢单') return '丢单';
+  if (value === '已报给客户' || value === '采购已报价') return '已报价';
+  return '有询价';
+}
+
+function buildQuoteAutoLogNote(status, quote) {
+  const value = normalizeQuoteStatus(status);
+  const mpn = getRowValue(quote, ['mpn', '型号', 'MPN']);
+  const qty = getRowValue(quote, ['qty', '数量', 'QTY']);
+  const price = getRowValue(quote, ['quoted_price', '报价', '单价']);
+  const parts = ['报价状态更新：' + value];
+  if (mpn) parts.push('型号 ' + mpn);
+  if (qty) parts.push('数量 ' + qty);
+  if (price) parts.push('报价 ' + price);
+  return parts.join('，');
+}
+
+function getCustomerById(ss, customerId) {
+  const customers = sheetToObjects(ss.getSheetByName('Customers'));
+  return customers.find(customer => getRowValue(customer, ['customer_id']) === customerId) || {};
 }
 
 // 获取 Sheet（找不到则报错提示）
