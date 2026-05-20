@@ -33,6 +33,14 @@ function doGet(e) {
       return respond(getFollowups());
     }
 
+    if (action === 'syncQuotes') {
+      return respond(syncAllQuotesToCustomers());
+    }
+
+    if (action === 'setupQuoteWorkflow') {
+      return respond(setupQuoteWorkflow());
+    }
+
     return respond({ status: 'error', message: 'Unknown action: ' + action });
 
   } catch (err) {
@@ -58,6 +66,14 @@ function doPost(e) {
 
     if (action === 'updateCustomer') {
       return respond(updateCustomer(body.data));
+    }
+
+    if (action === 'syncQuotes') {
+      return respond(syncAllQuotesToCustomers());
+    }
+
+    if (action === 'setupQuoteWorkflow') {
+      return respond(setupQuoteWorkflow());
     }
 
     return respond({ status: 'error', message: 'Unknown action: ' + action });
@@ -258,12 +274,137 @@ function addQuote(data) {
   ]);
 
   // 更新客户主档 last_quote_date
-  const custSheet = getSheet('Customers');
-  updateCustomerDates(custSheet, data.customer_id, {
-    last_quote_date: quoteDate
+  syncQuoteToCustomer({
+    quote_date: quoteDate,
+    customer_id: data.customer_id || '',
+    company: data.company || '',
+    contact_person: data.contact_person || '',
+    quote_status: data.quote_status || '已报价',
+    rfq_status: data.rfq_status || '',
+    followup_status: data.followup_status || '待跟进'
   });
 
   return { status: 'ok' };
+}
+
+// ============================================================
+// Sheet 编辑报价状态时，自动同步客户主档
+// ============================================================
+function onEdit(e) {
+  if (!e || !e.range) return;
+  const sheet = e.range.getSheet();
+  if (sheet.getName() !== 'Quote_Log') return;
+  if (e.range.getRow() === 1) return;
+
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  const watchedKeys = [
+    'quote_status',
+    'rfq_status',
+    'followup_status',
+    'quote_date',
+    'customer_id',
+    'company',
+    'contact_person'
+  ];
+  const watchedCols = watchedKeys
+    .map(key => findHeaderIndex(headers, key) + 1)
+    .filter(col => col > 0);
+
+  if (watchedCols.length > 0 && watchedCols.indexOf(e.range.getColumn()) === -1) return;
+
+  const rowObj = sheetRowToObject(sheet, e.range.getRow());
+  syncQuoteToCustomer(rowObj);
+}
+
+function installQuoteSyncTrigger() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const triggers = ScriptApp.getProjectTriggers();
+  triggers.forEach(trigger => {
+    if (trigger.getHandlerFunction() === 'onEdit') {
+      ScriptApp.deleteTrigger(trigger);
+    }
+  });
+  ScriptApp.newTrigger('onEdit').forSpreadsheet(ss).onEdit().create();
+  setupQuoteWorkflow();
+  return { status: 'ok', message: 'Quote_Log onEdit sync trigger installed' };
+}
+
+function setupQuoteWorkflow() {
+  const sheet = getSheet('Quote_Log');
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+
+  applyDropdown(sheet, headers, 'quote_status', [
+    '收到报价',
+    '已发采购',
+    '采购已报价',
+    '已报给客户',
+    '已成交',
+    '丢单',
+    '待跟进'
+  ]);
+  applyDropdown(sheet, headers, 'rfq_status', [
+    '待处理',
+    '已发采购',
+    '采购已回复',
+    '客户确认',
+    '关闭'
+  ]);
+  applyDropdown(sheet, headers, 'followup_status', [
+    'active',
+    '待跟进',
+    '已报价待跟进',
+    '已成交',
+    '丢单',
+    'closed'
+  ]);
+
+  return { status: 'ok', message: 'Quote_Log dropdowns updated' };
+}
+
+function syncAllQuotesToCustomers() {
+  const sheet = getSheet('Quote_Log');
+  const rows = sheetToObjects(sheet);
+  let updated = 0;
+  const skipped = [];
+
+  rows.forEach(row => {
+    const result = syncQuoteToCustomer(row);
+    if (result.updated) {
+      updated++;
+    } else {
+      skipped.push(result.reason || 'missing customer');
+    }
+  });
+
+  return { status: 'ok', updated, skipped_count: skipped.length, skipped };
+}
+
+function syncQuoteToCustomer(quote) {
+  const custSheet = getSheet('Customers');
+  const customerId = resolveQuoteCustomerId(quote);
+  if (!customerId) {
+    return { updated: false, reason: '找不到客户: ' + getRowValue(quote, ['company', '公司', 'contact_person', '联系人']) };
+  }
+
+  const quoteDate = getRowValue(quote, ['quote_date', '报价日期']) || formatDate(new Date());
+  const quoteStatus = normalizeQuoteStatus(getRowValue(quote, ['quote_status', '报价状态']));
+  const followupStatus = normalizeFollowupStatus(quoteStatus, getRowValue(quote, ['followup_status', '跟进状态']));
+
+  const updates = {
+    last_quote_date: quoteDate,
+    followup_status: followupStatus
+  };
+
+  if (quoteStatus === '已成交') {
+    updates.customer_stage = '已合作';
+  } else if (quoteStatus === '丢单') {
+    updates.followup_status = 'closed';
+  } else if (quoteStatus === '已报给客户' || quoteStatus === '已报价') {
+    updates.customer_stage = '已开发';
+  }
+
+  updateCustomerDates(custSheet, customerId, updates);
+  return { updated: true, customer_id: customerId, quote_status: quoteStatus };
 }
 
 // ============================================================
@@ -343,7 +484,14 @@ function findHeaderIndex(headers, key) {
     last_rfq_date: ['last_rfq_date', '最后RFQ日期'],
     last_quote_date: ['last_quote_date', '最后报价日期'],
     next_followup_date: ['next_followup_date', '下次跟进日期'],
-    followup_status: ['followup_status', '跟进状态']
+    followup_status: ['followup_status', '跟进状态'],
+    quote_date: ['quote_date', '报价日期'],
+    quote_status: ['quote_status', '报价状态'],
+    rfq_status: ['rfq_status', 'RFQ状态'],
+    mpn: ['mpn', '型号', 'MPN'],
+    qty: ['qty', '数量', 'QTY'],
+    quoted_price: ['quoted_price', '报价', '单价'],
+    remark: ['remark', '备注']
   };
   const candidates = aliases[key] || [key];
   for (let i = 0; i < candidates.length; i++) {
@@ -351,6 +499,69 @@ function findHeaderIndex(headers, key) {
     if (col !== -1) return col;
   }
   return -1;
+}
+
+function sheetRowToObject(sheet, rowNumber) {
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  const values = sheet.getRange(rowNumber, 1, 1, sheet.getLastColumn()).getValues()[0];
+  const obj = {};
+  headers.forEach((h, i) => {
+    if (values[i] instanceof Date) {
+      obj[h] = formatDate(values[i]);
+    } else {
+      obj[h] = values[i] === '' ? null : String(values[i]);
+    }
+  });
+  return obj;
+}
+
+function applyDropdown(sheet, headers, key, values) {
+  const col = findHeaderIndex(headers, key);
+  if (col === -1) return;
+  const maxRows = Math.max(sheet.getMaxRows() - 1, 1);
+  const rule = SpreadsheetApp.newDataValidation()
+    .requireValueInList(values, true)
+    .setAllowInvalid(false)
+    .build();
+  sheet.getRange(2, col + 1, maxRows, 1).setDataValidation(rule);
+}
+
+function resolveQuoteCustomerId(quote) {
+  const directId = getRowValue(quote, ['customer_id']);
+  if (directId) return directId;
+
+  const company = getRowValue(quote, ['company', '公司']).toLowerCase();
+  const contact = getRowValue(quote, ['contact_person', '联系人']).toLowerCase();
+  if (!company && !contact) return '';
+
+  const customers = sheetToObjects(getSheet('Customers'));
+  const exact = customers.find(c =>
+    (!company || getRowValue(c, ['company', '公司']).toLowerCase() === company) &&
+    (!contact || getRowValue(c, ['contact_person', '联系人']).toLowerCase() === contact)
+  );
+  if (exact) return getRowValue(exact, ['customer_id']);
+
+  const companyOnly = customers.find(c =>
+    company && getRowValue(c, ['company', '公司']).toLowerCase() === company
+  );
+  return companyOnly ? getRowValue(companyOnly, ['customer_id']) : '';
+}
+
+function normalizeQuoteStatus(status) {
+  const value = status || '';
+  if (value === '已报价') return '已报给客户';
+  if (value === 'QUOTE_SENT') return '已报给客户';
+  if (value === 'WON') return '已成交';
+  if (value === 'LOST') return '丢单';
+  return value || '待跟进';
+}
+
+function normalizeFollowupStatus(quoteStatus, existingStatus) {
+  if (quoteStatus === '已成交') return '已成交';
+  if (quoteStatus === '丢单') return 'closed';
+  if (quoteStatus === '已报给客户' || quoteStatus === '采购已报价') return '已报价待跟进';
+  if (quoteStatus === '已发采购' || quoteStatus === '收到报价') return 'active';
+  return existingStatus || 'active';
 }
 
 // 获取 Sheet（找不到则报错提示）
