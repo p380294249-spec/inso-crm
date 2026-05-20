@@ -5,6 +5,7 @@
 // ============================================================
 
 const SPREADSHEET_ID = '12bRXbKGBVIG09LWcLrxdg68J1kmem4UXjJzpfwboO9k'; // ← 替换这里
+const QUOTE_SHEET_NAMES = ['2026', 'Quote_Log'];
 
 // ============================================================
 // 入口：所有 GET 请求走这里
@@ -140,22 +141,25 @@ function getContactLog(params) {
 function getDashboard() {
   const today = formatDate(new Date());
   const logSheet = getSheet('Contact_Log');
-  const quoteSheet = getSheet('Quote_Log');
+  const quoteSheet = getQuoteSheet();
 
   const logs = sheetToObjects(logSheet);
   const quotes = sheetToObjects(quoteSheet);
 
-  const todayLogs = logs.filter(r => r.log_date === today);
-  const todayQuotes = quotes.filter(r => r.quote_date === today);
+  const todayLogs = logs.filter(r => getRowValue(r, ['log_date', '联系日期']) === today);
+  const todayQuotes = quotes.filter(r => getRowValue(r, ['quote_date', '报价日期', '日期']) === today);
 
   // 去重函数
-  const uniqueCustomers = (arr) => [...new Set(arr.map(r => r.customer_id).filter(Boolean))];
+  const uniqueCustomers = (arr) => [...new Set(arr.map(r => getRowValue(r, ['customer_id', '客户ID', '客户编号', 'Customer ID'])).filter(Boolean))];
 
   const contacted = uniqueCustomers(todayLogs.filter(r => r.action_type === 'SENT'));
   const replied = uniqueCustomers(todayLogs.filter(r => r.has_reply === 'TRUE'));
   const hasDemand = uniqueCustomers(todayLogs.filter(r => r.has_demand === 'TRUE'));
   const hasRfq = uniqueCustomers(todayLogs.filter(r => r.has_rfq === 'TRUE'));
-  const quoted = uniqueCustomers(todayQuotes.filter(r => r.quote_status === '已报价'));
+  const quoted = uniqueCustomers(todayQuotes.filter(r => {
+    const status = normalizeQuoteStatus(getRowValue(r, ['quote_status', '报价状态', '状态']));
+    return status === '已报给客户' || status === '采购已报价' || status === '已成交';
+  }));
 
   // 今天有RFQ但未报价
   const rfqIds = new Set(hasRfq);
@@ -255,7 +259,7 @@ function addContactLog(data) {
 // POST：写入报价记录
 // ============================================================
 function addQuote(data) {
-  const sheet = getSheet('Quote_Log');
+  const sheet = getQuoteSheet();
 
   const now = new Date();
   const quoteDate = data.quote_date || formatDate(now);
@@ -293,7 +297,7 @@ function addQuote(data) {
     rfq_status: data.rfq_status || '',
     followup_status: data.followup_status || '待跟进',
     remark: data.remark || ''
-  }, data.quote_status || '已报价', sheet.getLastRow());
+  }, data.quote_status || '已报价', sheet.getName() + '!' + sheet.getLastRow());
 
   return { status: 'ok' };
 }
@@ -304,7 +308,7 @@ function addQuote(data) {
 function onEdit(e) {
   if (!e || !e.range) return;
   const sheet = e.range.getSheet();
-  if (sheet.getName() !== 'Quote_Log') return;
+  if (!isQuoteSheetName(sheet.getName())) return;
   if (e.range.getRow() === 1) return;
 
   const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
@@ -329,12 +333,12 @@ function onEdit(e) {
   const quoteStatusCol = findHeaderIndex(headers, 'quote_status') + 1;
   const statusChanged = e.range.getColumn() === quoteStatusCol && e.value && e.value !== e.oldValue;
   if (statusChanged && isMeaningfulQuoteStatus(e.value)) {
-    appendQuoteStatusContactLog(rowObj, e.value, e.range.getRow(), e.source);
+    appendQuoteStatusContactLog(rowObj, e.value, sheet.getName() + '!' + e.range.getRow(), e.source);
   }
 }
 
 function setupQuoteWorkflow() {
-  const sheet = getSheet('Quote_Log');
+  const sheet = getQuoteSheet();
   ensureQuoteWorkflowHeaders(sheet);
   const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
 
@@ -365,7 +369,7 @@ function setupQuoteWorkflow() {
 
   setupCustomerStageDropdown();
 
-  return { status: 'ok', message: 'Quote_Log dropdowns updated' };
+  return { status: 'ok', message: sheet.getName() + ' dropdowns updated' };
 }
 
 function setupCustomerStageDropdown() {
@@ -410,7 +414,7 @@ function ensureQuoteWorkflowHeaders(sheet) {
 
 function syncAllQuotesToCustomers() {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  const sheet = ss.getSheetByName('Quote_Log');
+  const sheet = getQuoteSheet(ss);
   const rows = sheetToObjects(sheet);
   let updated = 0;
   const skipped = [];
@@ -519,7 +523,7 @@ function updateCustomer(data) {
   const rows = sheet.getDataRange().getValues();
   const headers = rows[0];
 
-  const idCol = headers.indexOf('customer_id');
+  const idCol = findHeaderIndex(headers, 'customer_id');
   if (idCol === -1) throw new Error('Customers sheet 缺少 customer_id 列');
 
   for (let i = 1; i < rows.length; i++) {
@@ -548,7 +552,7 @@ function updateCustomerDates(sheet, customerId, dates) {
 
   const rows = sheet.getDataRange().getValues();
   const headers = rows[0];
-  const idCol = headers.indexOf('customer_id');
+  const idCol = findHeaderIndex(headers, 'customer_id');
 
   for (let i = 1; i < rows.length; i++) {
     if (rows[i][idCol] === customerId) {
@@ -586,8 +590,9 @@ function getStageFromContactLog(data) {
 
 function findHeaderIndex(headers, key) {
   const aliases = {
-    company: ['company', '公司'],
-    contact_person: ['contact_person', '联系人'],
+    customer_id: ['customer_id', '客户ID', '客户编号', 'Customer ID'],
+    company: ['company', '公司', '公司名', '客户公司', '客户名称', '客户'],
+    contact_person: ['contact_person', '联系人', '客户联系人', 'Contact', 'contact'],
     default_channel: ['default_channel', 'WhatsApp/Skype/LinkedIn'],
     customer_stage: ['customer_stage', '客户阶段'],
     grade: ['grade', '等级'],
@@ -600,13 +605,13 @@ function findHeaderIndex(headers, key) {
     last_quote_date: ['last_quote_date', '最后报价日期'],
     next_followup_date: ['next_followup_date', '下次跟进日期'],
     followup_status: ['followup_status', '跟进状态'],
-    quote_date: ['quote_date', '报价日期'],
-    quote_status: ['quote_status', '报价状态'],
-    rfq_status: ['rfq_status', 'RFQ状态'],
-    mpn: ['mpn', '型号', 'MPN'],
-    qty: ['qty', '数量', 'QTY'],
-    quoted_price: ['quoted_price', '报价', '单价'],
-    remark: ['remark', '备注']
+    quote_date: ['quote_date', '报价日期', '日期', 'Date', 'date'],
+    quote_status: ['quote_status', '报价状态', '状态', '进度'],
+    rfq_status: ['rfq_status', 'RFQ状态', '询价状态'],
+    mpn: ['mpn', '型号', 'MPN', 'Part Number', '料号'],
+    qty: ['qty', '数量', 'QTY', 'Qty'],
+    quoted_price: ['quoted_price', '报价', '单价', 'Price', 'price', '价格'],
+    remark: ['remark', '备注', '说明']
   };
   const candidates = aliases[key] || [key];
   for (let i = 0; i < candidates.length; i++) {
@@ -614,6 +619,19 @@ function findHeaderIndex(headers, key) {
     if (col !== -1) return col;
   }
   return -1;
+}
+
+function getQuoteSheet(ss) {
+  const spreadsheet = ss || SpreadsheetApp.openById(SPREADSHEET_ID);
+  for (let i = 0; i < QUOTE_SHEET_NAMES.length; i++) {
+    const sheet = spreadsheet.getSheetByName(QUOTE_SHEET_NAMES[i]);
+    if (sheet) return sheet;
+  }
+  throw new Error('找不到报价 Sheet，请建立 2026 或 Quote_Log 标签页');
+}
+
+function isQuoteSheetName(name) {
+  return QUOTE_SHEET_NAMES.indexOf(name) !== -1;
 }
 
 function sheetRowToObject(sheet, rowNumber) {
@@ -642,7 +660,7 @@ function applyDropdown(sheet, headers, key, values) {
 }
 
 function resolveQuoteCustomerId(quote, ss) {
-  const directId = getRowValue(quote, ['customer_id']);
+  const directId = getRowValue(quote, ['customer_id', '客户ID', '客户编号', 'Customer ID']);
   if (directId) return directId;
 
   const company = getRowValue(quote, ['company', '公司']).toLowerCase();
@@ -655,12 +673,12 @@ function resolveQuoteCustomerId(quote, ss) {
     (!company || getRowValue(c, ['company', '公司']).toLowerCase() === company) &&
     (!contact || getRowValue(c, ['contact_person', '联系人']).toLowerCase() === contact)
   );
-  if (exact) return getRowValue(exact, ['customer_id']);
+  if (exact) return getRowValue(exact, ['customer_id', '客户ID', '客户编号', 'Customer ID']);
 
   const companyOnly = customers.find(c =>
     company && getRowValue(c, ['company', '公司']).toLowerCase() === company
   );
-  return companyOnly ? getRowValue(companyOnly, ['customer_id']) : '';
+  return companyOnly ? getRowValue(companyOnly, ['customer_id', '客户ID', '客户编号', 'Customer ID']) : '';
 }
 
 function normalizeQuoteStatus(status) {
@@ -722,7 +740,7 @@ function buildQuoteAutoLogNote(status, quote) {
 
 function getCustomerById(ss, customerId) {
   const customers = sheetToObjects(ss.getSheetByName('Customers'));
-  return customers.find(customer => getRowValue(customer, ['customer_id']) === customerId) || {};
+  return customers.find(customer => getRowValue(customer, ['customer_id', '客户ID', '客户编号', 'Customer ID']) === customerId) || {};
 }
 
 // 获取 Sheet（找不到则报错提示）
@@ -750,7 +768,13 @@ function sheetToObjects(sheet) {
       }
     });
     return obj;
-  }).filter(r => r.customer_id || r.log_id || r.quote_date); // 过滤空行
+  }).filter(r =>
+    getRowValue(r, ['customer_id', '客户ID', '客户编号', 'Customer ID']) ||
+    getRowValue(r, ['log_id']) ||
+    getRowValue(r, ['quote_date', '报价日期', '日期']) ||
+    getRowValue(r, ['company', '公司', '客户公司', '客户']) ||
+    getRowValue(r, ['contact_person', '联系人'])
+  ); // 过滤空行
 }
 
 // 统一 JSON 返回格式（加 CORS 头）
