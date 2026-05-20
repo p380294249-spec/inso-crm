@@ -41,6 +41,10 @@ function doGet(e) {
       return respond(setupQuoteWorkflow());
     }
 
+    if (action === 'installQuoteSyncTrigger') {
+      return respond(installQuoteSyncTrigger());
+    }
+
     return respond({ status: 'error', message: 'Unknown action: ' + action });
 
   } catch (err) {
@@ -74,6 +78,10 @@ function doPost(e) {
 
     if (action === 'setupQuoteWorkflow') {
       return respond(setupQuoteWorkflow());
+    }
+
+    if (action === 'installQuoteSyncTrigger') {
+      return respond(installQuoteSyncTrigger());
     }
 
     return respond({ status: 'error', message: 'Unknown action: ' + action });
