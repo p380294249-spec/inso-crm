@@ -54,6 +54,10 @@ function doGet(e) {
       return respond(setupQuoteWorkflow());
     }
 
+    if (action === 'installQuoteSyncTrigger') {
+      return respond(installQuoteSyncTrigger());
+    }
+
     return respond({ status: 'error', message: 'Unknown action: ' + action });
 
   } catch (err) {
@@ -87,6 +91,10 @@ function doPost(e) {
 
     if (action === 'setupQuoteWorkflow') {
       return respond(setupQuoteWorkflow());
+    }
+
+    if (action === 'installQuoteSyncTrigger') {
+      return respond(installQuoteSyncTrigger());
     }
 
     return respond({ status: 'error', message: 'Unknown action: ' + action });
@@ -334,8 +342,30 @@ function onEdit(e) {
 
   const statusChanged = editedKey === 'quote_status' && e.value && e.value !== e.oldValue;
   if (statusChanged && isMeaningfulQuoteStatus(e.value)) {
+    fillQuoteDateIfBlank(sheet, e.range.getRow());
     appendQuoteStatusContactLog(rowObj, e.value, sheet.getName() + '!' + e.range.getRow(), e.source);
   }
+}
+
+function handleQuoteSheetEdit(e) {
+  onEdit(e);
+}
+
+function installQuoteSyncTrigger() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const triggers = ScriptApp.getProjectTriggers();
+  triggers.forEach(trigger => {
+    if (trigger.getHandlerFunction() === 'handleQuoteSheetEdit') {
+      ScriptApp.deleteTrigger(trigger);
+    }
+  });
+
+  ScriptApp.newTrigger('handleQuoteSheetEdit')
+    .forSpreadsheet(ss)
+    .onEdit()
+    .create();
+
+  return { status: 'ok', message: 'Quote edit trigger installed' };
 }
 
 function setupQuoteWorkflow() {
@@ -788,6 +818,18 @@ function inferQuoteBlockDate(sheet, rowNumber, headerRow) {
     if (value && /^\d{4}-\d{1,2}-\d{1,2}$/.test(String(value).trim())) return String(value).trim();
   }
   return formatDate(new Date());
+}
+
+function fillQuoteDateIfBlank(sheet, rowNumber) {
+  const block = findQuoteBlockHeader(sheet, rowNumber);
+  if (!block) return;
+
+  const dateColIndex = block.headers.findIndex(header => canonicalQuoteHeaderKey(header) === 'quote_date');
+  if (dateColIndex === -1) return;
+
+  const cell = sheet.getRange(rowNumber, dateColIndex + 1);
+  if (cell.getValue()) return;
+  cell.setValue(formatDate(new Date()));
 }
 
 function applyDropdown(sheet, headers, key, values) {
