@@ -909,7 +909,7 @@ function resolveQuoteCustomerId(quote, ss) {
     const contactOk = !contact || customerContact.indexOf(contact) !== -1 || contact.indexOf(customerContact) !== -1;
     return companyOk && contactOk;
   });
-  if (fuzzy.length === 1) return getRowValue(fuzzy[0], ['customer_id', '客户ID', '客户编号', 'Customer ID']);
+  if (fuzzy.length > 0) return getRowValue(fuzzy[0], ['customer_id', '客户ID', '客户编号', 'Customer ID']);
 
   const companyOnly = customers.find(c =>
     company && normalizeMatchText(getRowValue(c, ['company', '公司'])) === company
