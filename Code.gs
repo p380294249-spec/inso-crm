@@ -6,6 +6,18 @@
 
 const SPREADSHEET_ID = '12bRXbKGBVIG09LWcLrxdg68J1kmem4UXjJzpfwboO9k'; // ← 替换这里
 const QUOTE_SHEET_NAMES = ['2026', 'Quote_Log'];
+const QUOTE_STATUS_VALUES = [
+  '有回复',
+  '有询价',
+  '已报价',
+  '收到报价',
+  '已发采购',
+  '采购已报价',
+  '已报给客户',
+  '已成交',
+  '丢单',
+  '待跟进'
+];
 
 // ============================================================
 // 入口：所有 GET 请求走这里
@@ -144,7 +156,7 @@ function getDashboard() {
   const quoteSheet = getQuoteSheet();
 
   const logs = sheetToObjects(logSheet);
-  const quotes = sheetToObjects(quoteSheet);
+  const quotes = sheetToQuoteObjects(quoteSheet);
 
   const todayLogs = logs.filter(r => getRowValue(r, ['log_date', '联系日期']) === today);
   const todayQuotes = quotes.filter(r => getRowValue(r, ['quote_date', '报价日期', '日期']) === today);
@@ -311,27 +323,16 @@ function onEdit(e) {
   if (!isQuoteSheetName(sheet.getName())) return;
   if (e.range.getRow() === 1) return;
 
-  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-  const watchedKeys = [
-    'quote_status',
-    'rfq_status',
-    'followup_status',
-    'quote_date',
-    'customer_id',
-    'company',
-    'contact_person'
-  ];
-  const watchedCols = watchedKeys
-    .map(key => findHeaderIndex(headers, key) + 1)
-    .filter(col => col > 0);
+  const rowObj = sheetRowToQuoteObject(sheet, e.range.getRow());
+  if (!rowObj) return;
 
-  if (watchedCols.length > 0 && watchedCols.indexOf(e.range.getColumn()) === -1) return;
+  const editedKey = getQuoteColumnKey(sheet, e.range.getRow(), e.range.getColumn());
+  if (!editedKey) return;
+  if (['quote_status', 'rfq_status', 'followup_status', 'quote_date', 'customer_id', 'company', 'contact_person'].indexOf(editedKey) === -1) return;
 
-  const rowObj = sheetRowToObject(sheet, e.range.getRow());
   syncQuoteToCustomer(rowObj, e.source);
 
-  const quoteStatusCol = findHeaderIndex(headers, 'quote_status') + 1;
-  const statusChanged = e.range.getColumn() === quoteStatusCol && e.value && e.value !== e.oldValue;
+  const statusChanged = editedKey === 'quote_status' && e.value && e.value !== e.oldValue;
   if (statusChanged && isMeaningfulQuoteStatus(e.value)) {
     appendQuoteStatusContactLog(rowObj, e.value, sheet.getName() + '!' + e.range.getRow(), e.source);
   }
@@ -339,18 +340,13 @@ function onEdit(e) {
 
 function setupQuoteWorkflow() {
   const sheet = getQuoteSheet();
-  ensureQuoteWorkflowHeaders(sheet);
+  if (sheet.getName() !== '2026') {
+    ensureQuoteWorkflowHeaders(sheet);
+  }
   const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
 
-  applyDropdown(sheet, headers, 'quote_status', [
-    '收到报价',
-    '已发采购',
-    '采购已报价',
-    '已报给客户',
-    '已成交',
-    '丢单',
-    '待跟进'
-  ]);
+  applyDropdown(sheet, headers, 'quote_status', QUOTE_STATUS_VALUES);
+  applyQuoteBlockDropdowns(sheet);
   applyDropdown(sheet, headers, 'rfq_status', [
     '待处理',
     '已发采购',
@@ -415,7 +411,7 @@ function ensureQuoteWorkflowHeaders(sheet) {
 function syncAllQuotesToCustomers() {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const sheet = getQuoteSheet(ss);
-  const rows = sheetToObjects(sheet);
+  const rows = sheetToQuoteObjects(sheet);
   let updated = 0;
   const skipped = [];
 
@@ -452,10 +448,12 @@ function syncQuoteToCustomer(quote, ss) {
     updates.customer_stage = '有成交';
   } else if (quoteStatus === '丢单') {
     updates.followup_status = 'closed';
-  } else if (quoteStatus === '已报给客户' || quoteStatus === '已报价' || quoteStatus === '采购已报价') {
+  } else if (quoteStatus === '已报给客户' || quoteStatus === '已报价' || quoteStatus === '采购已报价' || quoteStatus === '有询价') {
     updates.customer_stage = '有询价';
   } else if (quoteStatus === '收到报价' || quoteStatus === '已发采购') {
     updates.customer_stage = '有询价';
+  } else if (quoteStatus === '有回复') {
+    updates.customer_stage = '有回复';
   }
 
   updateCustomerDates(custSheet, customerId, updates);
@@ -483,8 +481,8 @@ function appendQuoteStatusContactLog(quote, rawStatus, sourceRow, ss) {
   const logId = 'LOG-' + String(logSheet.getLastRow()).padStart(6, '0');
   const actionType = getQuoteActionType(quoteStatus);
   const result = getQuoteLogResult(quoteStatus);
-  const hasQuote = quoteStatus === '已报给客户' || quoteStatus === '采购已报价' || quoteStatus === '已成交';
-  const hasRfq = quoteStatus !== '待跟进';
+  const hasQuote = quoteStatus === '已报给客户' || quoteStatus === '已报价' || quoteStatus === '采购已报价' || quoteStatus === '已成交';
+  const hasRfq = quoteStatus === '有询价' || quoteStatus === '收到报价' || quoteStatus === '已发采购' || hasQuote;
   const company = getRowValue(quote, ['company', '公司']) || getRowValue(customer, ['company', '公司']);
   const contactPerson = getRowValue(quote, ['contact_person', '联系人']) || getRowValue(customer, ['contact_person', '联系人']);
   const channel = getRowValue(customer, ['default_channel', 'WhatsApp/Skype/LinkedIn']);
@@ -592,7 +590,7 @@ function findHeaderIndex(headers, key) {
   const aliases = {
     customer_id: ['customer_id', '客户ID', '客户编号', 'Customer ID'],
     company: ['company', '公司', '公司名', '客户公司', '客户名称', '客户'],
-    contact_person: ['contact_person', '联系人', '客户联系人', 'Contact', 'contact'],
+    contact_person: ['contact_person', '联系人', '客户联系人', 'Contact', 'contact', 'WHO', 'Who', 'who'],
     default_channel: ['default_channel', 'WhatsApp/Skype/LinkedIn'],
     customer_stage: ['customer_stage', '客户阶段'],
     grade: ['grade', '等级'],
@@ -605,13 +603,15 @@ function findHeaderIndex(headers, key) {
     last_quote_date: ['last_quote_date', '最后报价日期'],
     next_followup_date: ['next_followup_date', '下次跟进日期'],
     followup_status: ['followup_status', '跟进状态'],
-    quote_date: ['quote_date', '报价日期', '日期', 'Date', 'date'],
-    quote_status: ['quote_status', '报价状态', '状态', '进度'],
+    quote_date: ['quote_date', '报价日期', '日期', 'Date', 'date', 'DATE'],
+    quote_status: ['quote_status', '报价状态', '状态', '进度', 'STATUS', 'Status', 'status', 'HOW', 'How', 'how'],
     rfq_status: ['rfq_status', 'RFQ状态', '询价状态'],
     mpn: ['mpn', '型号', 'MPN', 'Part Number', '料号'],
     qty: ['qty', '数量', 'QTY', 'Qty'],
     quoted_price: ['quoted_price', '报价', '单价', 'Price', 'price', '价格'],
-    remark: ['remark', '备注', '说明']
+    remark: ['remark', '备注', '说明', 'Remark'],
+    quote_class: ['CLASS', 'Class', 'class', '等级'],
+    quote_what: ['WHAT', 'What', 'what']
   };
   const candidates = aliases[key] || [key];
   for (let i = 0; i < candidates.length; i++) {
@@ -648,6 +648,148 @@ function sheetRowToObject(sheet, rowNumber) {
   return obj;
 }
 
+function sheetRowToQuoteObject(sheet, rowNumber) {
+  const block = findQuoteBlockHeader(sheet, rowNumber);
+  if (!block) return sheetRowToObject(sheet, rowNumber);
+
+  const values = sheet.getRange(rowNumber, 1, 1, sheet.getLastColumn()).getValues()[0];
+  const obj = {};
+  block.headers.forEach((header, i) => {
+    const key = canonicalQuoteHeaderKey(header);
+    if (!key) return;
+    const value = values[i];
+    obj[key] = value instanceof Date ? formatDate(value) : (value === '' ? null : String(value));
+  });
+
+  obj.quote_date = obj.quote_date || inferQuoteBlockDate(sheet, rowNumber, block.row);
+  obj.quote_status = obj.quote_status || '';
+  obj.contact_person = obj.contact_person || '';
+  return obj;
+}
+
+function sheetToQuoteObjects(sheet) {
+  const data = sheet.getDataRange().getValues();
+  if (data.length < 2) return [];
+
+  const defaultHeaders = data[0].map(value => value === null ? '' : String(value).trim());
+  const rows = [];
+  let currentHeaders = null;
+  let currentDate = '';
+
+  for (let i = 1; i < data.length; i++) {
+    const rowValues = data[i];
+    if (isQuoteBlockHeaderRow(rowValues)) {
+      currentHeaders = rowValues.map(value => value === null ? '' : String(value).trim());
+      currentDate = '';
+      continue;
+    }
+
+    const headers = currentHeaders || defaultHeaders;
+    const obj = {};
+    headers.forEach((header, colIndex) => {
+      const key = canonicalQuoteHeaderKey(header);
+      if (!key) return;
+      const value = rowValues[colIndex];
+      obj[key] = value instanceof Date ? formatDate(value) : (value === '' ? null : String(value));
+    });
+
+    const rowDate = rowValues[0] instanceof Date ? formatDate(rowValues[0]) : (rowValues[0] ? String(rowValues[0]).trim() : '');
+    if (rowDate && /^\d{4}-\d{1,2}-\d{1,2}$/.test(rowDate)) currentDate = rowDate;
+    obj.quote_date = obj.quote_date || currentDate || formatDate(new Date());
+
+    if (
+      getRowValue(obj, ['customer_id', '客户ID', '客户编号', 'Customer ID']) ||
+      getRowValue(obj, ['company', '公司', '客户公司', '客户']) ||
+      getRowValue(obj, ['contact_person', '联系人']) ||
+      getRowValue(obj, ['quote_status', '报价状态', '状态']) ||
+      getRowValue(obj, ['mpn', '型号', 'MPN'])
+    ) {
+      rows.push(obj);
+    }
+  }
+  return rows;
+}
+
+function getQuoteColumnKey(sheet, rowNumber, colNumber) {
+  const block = findQuoteBlockHeader(sheet, rowNumber);
+  if (block) return canonicalQuoteHeaderKey(block.headers[colNumber - 1]);
+
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  return canonicalQuoteHeaderKey(headers[colNumber - 1]);
+}
+
+function findQuoteBlockHeader(sheet, rowNumber) {
+  const start = Math.max(1, rowNumber - 40);
+  const count = rowNumber - start;
+  if (count <= 0) return null;
+
+  const rows = sheet.getRange(start, 1, count, sheet.getLastColumn()).getValues();
+  for (let i = rows.length - 1; i >= 0; i--) {
+    if (isQuoteBlockHeaderRow(rows[i])) {
+      return { row: start + i, headers: rows[i].map(value => value === null ? '' : String(value).trim()) };
+    }
+  }
+  return null;
+}
+
+function isQuoteBlockHeaderRow(row) {
+  const headers = row.map(value => value === null ? '' : String(value).trim().toUpperCase());
+  const hasCustomer = headers.indexOf('WHO') !== -1 || headers.indexOf('CONTACT_PERSON') !== -1 || headers.indexOf('联系人') !== -1;
+  const hasPart = headers.indexOf('MPN') !== -1 || headers.indexOf('PART NO. OFFER') !== -1 || headers.indexOf('PART NO OFFER') !== -1;
+  const hasStatus = headers.indexOf('STATUS') !== -1 || headers.indexOf('HOW') !== -1 || headers.indexOf('状态') !== -1;
+  return hasCustomer && hasPart && hasStatus;
+}
+
+function canonicalQuoteHeaderKey(header) {
+  const label = header === null || header === undefined ? '' : String(header).trim();
+  if (!label) return '';
+
+  const normalized = label.toUpperCase();
+  const direct = {
+    HOW: 'quote_status',
+    STATUS: 'quote_status',
+    DATE: 'quote_date',
+    WHO: 'contact_person',
+    CLASS: 'quote_class',
+    WHAT: 'quote_what',
+    MPN: 'mpn',
+    MFR: 'mfr',
+    QTY: 'qty',
+    BRAND: 'brand',
+    USD: 'quoted_price',
+    'QTY OFFER': 'qty_offer',
+    'D/C': 'dc',
+    'L/T': 'lead_time',
+    REMARK: 'remark',
+    STOCK: 'stock',
+    TOTAL: 'total'
+  };
+  if (direct[normalized]) return direct[normalized];
+  if (normalized === 'PART NO. OFFER' || normalized === 'PART NO OFFER') return 'part_no_offer';
+
+  const keys = ['customer_id', 'company', 'contact_person', 'quote_date', 'quote_status', 'rfq_status', 'followup_status', 'mpn', 'qty', 'quoted_price', 'remark'];
+  for (let i = 0; i < keys.length; i++) {
+    if (findHeaderIndex([label], keys[i]) === 0) return keys[i];
+  }
+  return '';
+}
+
+function inferQuoteBlockDate(sheet, rowNumber, headerRow) {
+  const firstColValue = sheet.getRange(rowNumber, 1).getValue();
+  if (firstColValue instanceof Date) return formatDate(firstColValue);
+  if (firstColValue) {
+    const text = String(firstColValue).trim();
+    if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(text)) return text;
+  }
+
+  for (let row = rowNumber - 1; row > headerRow; row--) {
+    const value = sheet.getRange(row, 1).getValue();
+    if (value instanceof Date) return formatDate(value);
+    if (value && /^\d{4}-\d{1,2}-\d{1,2}$/.test(String(value).trim())) return String(value).trim();
+  }
+  return formatDate(new Date());
+}
+
 function applyDropdown(sheet, headers, key, values) {
   const col = findHeaderIndex(headers, key);
   if (col === -1) return;
@@ -657,6 +799,39 @@ function applyDropdown(sheet, headers, key, values) {
     .setAllowInvalid(false)
     .build();
   sheet.getRange(2, col + 1, maxRows, 1).setDataValidation(rule);
+}
+
+function applyQuoteBlockDropdowns(sheet) {
+  const maxRows = sheet.getMaxRows();
+  const lastCol = sheet.getLastColumn();
+  if (maxRows < 2 || lastCol < 1) return;
+
+  const values = sheet.getRange(1, 1, Math.min(sheet.getLastRow(), maxRows), lastCol).getValues();
+  const rule = SpreadsheetApp.newDataValidation()
+    .requireValueInList(QUOTE_STATUS_VALUES, true)
+    .setAllowInvalid(false)
+    .build();
+
+  const headerRows = [];
+  values.forEach((row, index) => {
+    if (isQuoteBlockHeaderRow(row)) headerRows.push(index + 1);
+  });
+
+  headerRows.forEach((headerRow, index) => {
+    const rowValues = values[headerRow - 1];
+    rowValues.forEach((header, colIndex) => {
+      if (canonicalQuoteHeaderKey(header) !== 'quote_status') return;
+      const headerCell = sheet.getRange(headerRow, colIndex + 1);
+      if (String(header || '').trim().toUpperCase() === 'HOW') headerCell.setValue('STATUS');
+
+      const nextHeaderRow = headerRows[index + 1] || maxRows + 1;
+      const startRow = headerRow + 1;
+      const numRows = Math.max(nextHeaderRow - startRow, 0);
+      if (numRows > 0) {
+        sheet.getRange(startRow, colIndex + 1, numRows, 1).setDataValidation(rule);
+      }
+    });
+  });
 }
 
 function resolveQuoteCustomerId(quote, ss) {
@@ -683,7 +858,6 @@ function resolveQuoteCustomerId(quote, ss) {
 
 function normalizeQuoteStatus(status) {
   const value = status || '';
-  if (value === '已报价') return '已报给客户';
   if (value === 'QUOTE_SENT') return '已报给客户';
   if (value === 'WON') return '已成交';
   if (value === 'LOST') return '丢单';
@@ -693,14 +867,17 @@ function normalizeQuoteStatus(status) {
 function normalizeFollowupStatus(quoteStatus, existingStatus) {
   if (quoteStatus === '已成交') return '已成交';
   if (quoteStatus === '丢单') return 'closed';
-  if (quoteStatus === '已报给客户' || quoteStatus === '采购已报价') return '已报价待跟进';
-  if (quoteStatus === '已发采购' || quoteStatus === '收到报价') return 'active';
+  if (quoteStatus === '已报给客户' || quoteStatus === '已报价' || quoteStatus === '采购已报价') return '已报价待跟进';
+  if (quoteStatus === '已发采购' || quoteStatus === '收到报价' || quoteStatus === '有回复' || quoteStatus === '有询价') return 'active';
   return existingStatus || 'active';
 }
 
 function isMeaningfulQuoteStatus(status) {
   const value = normalizeQuoteStatus(status);
   return [
+    '有回复',
+    '有询价',
+    '已报价',
     '收到报价',
     '已发采购',
     '采购已报价',
@@ -713,7 +890,7 @@ function isMeaningfulQuoteStatus(status) {
 function getQuoteActionType(status) {
   const value = normalizeQuoteStatus(status);
   if (value === '已成交') return 'ORDER_WON';
-  if (value === '已报给客户' || value === '采购已报价') return 'QUOTED';
+  if (value === '已报给客户' || value === '已报价' || value === '采购已报价') return 'QUOTED';
   if (value === '丢单') return 'LOST';
   return 'FOLLOW_UP';
 }
@@ -722,7 +899,9 @@ function getQuoteLogResult(status) {
   const value = normalizeQuoteStatus(status);
   if (value === '已成交') return '已成交';
   if (value === '丢单') return '丢单';
-  if (value === '已报给客户' || value === '采购已报价') return '已报价';
+  if (value === '有回复') return '有回复';
+  if (value === '有询价') return '有询价';
+  if (value === '已报给客户' || value === '已报价' || value === '采购已报价') return '已报价';
   return '有询价';
 }
 
