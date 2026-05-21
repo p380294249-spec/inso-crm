@@ -340,6 +340,7 @@
     <option value="A">A 级</option>
     <option value="B">B 级</option>
     <option value="C">C 级</option>
+    <option value="D">D 级</option>
   </select>
   <span class="count-label" id="countLabel">— 客户</span>
 </div>
@@ -353,7 +354,7 @@
         <th onclick="sortBy('company')">公司 <span class="sort-arrow">↕</span></th>
         <th>联系人</th>
         <th>渠道</th>
-        <th>等级</th>
+        <th onclick="sortBy('grade')">等级 <span class="sort-arrow">↕</span></th>
         <th>阶段</th>
         <th onclick="sortBy('last_contact_date')">最近联系 <span class="sort-arrow">↕</span></th>
         <th onclick="sortBy('next_followup_date')">下次跟进 <span class="sort-arrow">↕</span></th>
@@ -378,8 +379,8 @@ const API_URL = 'https://script.google.com/macros/s/AKfycbzUR97X-G_YDEVoaMKnyrfl
 
 let allCustomers = [];
 let allLogs = [];
-let sortKey = 'last_contact_date';
-let sortAsc = false;
+let sortKey = 'grade';
+let sortAsc = true;
 
 const CUSTOMER_FIELDS = {
   id: ['customer_id'],
@@ -452,6 +453,11 @@ function renderTable() {
 
   // 排序
   list.sort((a, b) => {
+    if (sortKey === 'grade') {
+      const result = gradeRank(getCustomerValue(a, 'grade')) - gradeRank(getCustomerValue(b, 'grade'));
+      if (result !== 0) return sortAsc ? result : -result;
+      return getCustomerValue(a, 'company').localeCompare(getCustomerValue(b, 'company'));
+    }
     const va = getCustomerValue(a, sortKey) || '';
     const vb = getCustomerValue(b, sortKey) || '';
     return sortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
@@ -500,10 +506,16 @@ function renderTable() {
 
 function sortBy(key) {
   if (sortKey === key) sortAsc = !sortAsc;
-  else { sortKey = key; sortAsc = false; }
+  else { sortKey = key; sortAsc = key === 'grade'; }
   // 更新箭头
   document.querySelectorAll('thead th').forEach(th => th.classList.remove('sorted'));
   renderTable();
+}
+
+function gradeRank(grade) {
+  const order = { S: 0, A: 1, B: 2, C: 3, D: 4 };
+  const key = String(grade || '').trim().toUpperCase();
+  return Object.prototype.hasOwnProperty.call(order, key) ? order[key] : 99;
 }
 
 // ── 详情抽屉 ────────────────────────────────────────────
