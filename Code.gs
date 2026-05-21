@@ -889,36 +889,7 @@ function applyQuoteBlockDropdowns(sheet) {
 function resolveQuoteCustomerId(quote, ss) {
   const directId = getRowValue(quote, ['customer_id', '客户ID', '客户编号', 'Customer ID']);
   if (directId) return directId;
-
-  const company = normalizeMatchText(getRowValue(quote, ['company', '公司']));
-  const contact = normalizeMatchText(getRowValue(quote, ['contact_person', '联系人']));
-  if (!company && !contact) return '';
-
-  const spreadsheet = ss || SpreadsheetApp.openById(SPREADSHEET_ID);
-  const customers = sheetToObjects(spreadsheet.getSheetByName('Customers'));
-  const exact = customers.find(c =>
-    (!company || normalizeMatchText(getRowValue(c, ['company', '公司'])) === company) &&
-    (!contact || normalizeMatchText(getRowValue(c, ['contact_person', '联系人'])) === contact)
-  );
-  if (exact) return getRowValue(exact, ['customer_id', '客户ID', '客户编号', 'Customer ID']);
-
-  const fuzzy = customers.filter(c => {
-    const customerCompany = normalizeMatchText(getRowValue(c, ['company', '公司']));
-    const customerContact = normalizeMatchText(getRowValue(c, ['contact_person', '联系人']));
-    const companyOk = !company || customerCompany.indexOf(company) !== -1 || company.indexOf(customerCompany) !== -1;
-    const contactOk = !contact || customerContact.indexOf(contact) !== -1 || contact.indexOf(customerContact) !== -1;
-    return companyOk && contactOk;
-  });
-  if (fuzzy.length > 0) return getRowValue(fuzzy[0], ['customer_id', '客户ID', '客户编号', 'Customer ID']);
-
-  const companyOnly = customers.find(c =>
-    company && normalizeMatchText(getRowValue(c, ['company', '公司'])) === company
-  );
-  return companyOnly ? getRowValue(companyOnly, ['customer_id', '客户ID', '客户编号', 'Customer ID']) : '';
-}
-
-function normalizeMatchText(value) {
-  return String(value || '').toLowerCase().replace(/[^a-z0-9\u4e00-\u9fa5]+/g, '');
+  return '';
 }
 
 function normalizeQuoteStatus(status) {
