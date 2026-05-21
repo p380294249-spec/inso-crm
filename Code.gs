@@ -443,18 +443,26 @@ function syncAllQuotesToCustomers() {
   const sheet = getQuoteSheet(ss);
   const rows = sheetToQuoteObjects(sheet);
   let updated = 0;
+  let logged = 0;
   const skipped = [];
 
   rows.forEach(row => {
+    const quoteStatus = normalizeQuoteStatus(getRowValue(row, ['quote_status', '报价状态', '状态']));
+    if (!isMeaningfulQuoteStatus(quoteStatus)) return;
+
+    if (row.source_row) fillQuoteDateIfBlank(sheet, Number(row.source_row));
+
     const result = syncQuoteToCustomer(row, ss);
     if (result.updated) {
       updated++;
+      const logResult = appendQuoteStatusContactLog(row, quoteStatus, row.source_ref || sheet.getName(), ss);
+      if (logResult.logged) logged++;
     } else {
       skipped.push(result.reason || 'missing customer');
     }
   });
 
-  return { status: 'ok', updated, skipped_count: skipped.length, skipped };
+  return { status: 'ok', updated, logged, skipped_count: skipped.length, skipped };
 }
 
 function syncQuoteToCustomer(quote, ss) {
@@ -726,6 +734,8 @@ function sheetToQuoteObjects(sheet) {
     const rowDate = rowValues[0] instanceof Date ? formatDate(rowValues[0]) : (rowValues[0] ? String(rowValues[0]).trim() : '');
     if (rowDate && /^\d{4}-\d{1,2}-\d{1,2}$/.test(rowDate)) currentDate = rowDate;
     obj.quote_date = obj.quote_date || currentDate || formatDate(new Date());
+    obj.source_row = String(i + 1);
+    obj.source_ref = sheet.getName() + '!' + (i + 1);
 
     if (
       getRowValue(obj, ['customer_id', '客户ID', '客户编号', 'Customer ID']) ||

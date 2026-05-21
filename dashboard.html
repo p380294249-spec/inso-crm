@@ -429,6 +429,7 @@ function switchTab(tab) {
 
 async function loadTodayView() {
   loadedTabs.today = true;
+  await syncQuoteSheet();
   loadToday();
   loadFollowups();
 }
@@ -446,6 +447,21 @@ async function fetchApi(action) {
     cache[action] = fetch(`${API_URL}?action=${action}`).then(res => res.json());
   }
   return cache[action];
+}
+
+async function syncQuoteSheet() {
+  try {
+    const res = await fetch(`${API_URL}?action=syncQuotes&t=${Date.now()}`);
+    const json = await res.json();
+    if (json.status === 'ok') {
+      delete cache.getDashboard;
+      delete cache.getFollowups;
+      delete cache.getContactLog;
+      delete cache.getCustomers;
+    }
+  } catch (err) {
+    console.warn('quote sync skipped', err);
+  }
 }
 
 // ── 今日漏斗 ────────────────────────────────────────────

@@ -408,6 +408,7 @@ window.onload = () => {
 
 async function loadData() {
   try {
+    await syncQuoteSheet();
     const [cRes, lRes] = await Promise.all([
       fetch(`${API_URL}?action=getCustomers`),
       fetch(`${API_URL}?action=getContactLog`)
@@ -420,6 +421,14 @@ async function loadData() {
   } catch (err) {
     document.getElementById('tableBody').innerHTML =
       `<tr><td colspan="9"><div class="empty">加载失败: ${err.message}</div></td></tr>`;
+  }
+}
+
+async function syncQuoteSheet() {
+  try {
+    await fetch(`${API_URL}?action=syncQuotes&t=${Date.now()}`);
+  } catch (err) {
+    console.warn('quote sync skipped', err);
   }
 }
 
