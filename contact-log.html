@@ -496,7 +496,7 @@
       const params = new URLSearchParams(window.location.search);
       const cid = params.get('customer_id');
       if (cid) {
-        const found = allCustomers.find(c => c.customer_id === cid);
+        const found = allCustomers.find(c => getCustomerField(c, 'id') === cid);
         if (found) {
           selectCustomer(found);
         } else {
@@ -675,10 +675,32 @@
     // 自动设置默认渠道
     if (channel) {
       const sel = document.getElementById('channel');
-      for (let opt of sel.options) {
-        if (opt.value === channel) { sel.value = channel; break; }
+      setChannelSelectValue(sel, channel);
+    }
+  }
+
+  function setChannelSelectValue(select, value) {
+    const normalized = normalizeChannel(value);
+    if (!normalized) return;
+    for (let opt of select.options) {
+      if (normalizeChannel(opt.value) === normalized) {
+        select.value = opt.value;
+        return;
       }
     }
+    select.value = 'Other';
+  }
+
+  function normalizeChannel(value) {
+    const v = String(value || '').trim().toLowerCase();
+    if (!v || v === '-' || v === 'null') return '';
+    if (v.includes('wechat') || v.includes('微信')) return 'wechat';
+    if (v.includes('whatsapp')) return 'whatsapp';
+    if (v.includes('email') || v.includes('mail') || v.includes('邮箱')) return 'email';
+    if (v.includes('skype')) return 'skype';
+    if (v.includes('linkedin')) return 'linkedin';
+    if (v.includes('phone') || v.includes('电话')) return 'phone';
+    return v;
   }
 
   function clearCustomer() {
