@@ -387,10 +387,10 @@
       <select id="actionType">
         <option value="SENT">发送消息</option>
         <option value="RECEIVED">收到回复</option>
-        <option value="RFQ_RECEIVED">收到 RFQ</option>
-        <option value="QUOTED">已报价</option>
+        <option value="RFQ_RECEIVED">收到询价</option>
+        <option value="QUOTED">已报价给客户</option>
         <option value="FOLLOW_UP">跟进</option>
-        <option value="ORDER_WON">成单</option>
+        <option value="ORDER_WON">成交</option>
         <option value="NO_REPLY">无回复</option>
       </select>
     </div>
@@ -435,25 +435,6 @@
 
   <hr class="divider">
 
-  <!-- 本次结果勾选 -->
-  <div class="field-label" style="margin-bottom:10px;">本次结果</div>
-  <div class="toggle-row">
-    <button class="toggle-btn" id="togReply" onclick="toggle('togReply','has_reply')">
-      <span class="toggle-dot"></span>客户已回复
-    </button>
-    <button class="toggle-btn" id="togDemand" onclick="toggle('togDemand','has_demand')">
-      <span class="toggle-dot"></span>有需求
-    </button>
-    <button class="toggle-btn" id="togRfq" onclick="toggle('togRfq','has_rfq')">
-      <span class="toggle-dot"></span>收到 RFQ
-    </button>
-    <button class="toggle-btn" id="togQuote" onclick="toggle('togQuote','has_quote')">
-      <span class="toggle-dot"></span>已报价
-    </button>
-  </div>
-
-  <hr class="divider">
-
   <div class="form-row single">
     <div class="field">
       <label class="field-label">下次跟进日期</label>
@@ -480,7 +461,6 @@
 
   // ── 状态 ──────────────────────────────────────────
   let selectedCustomer = null;
-  let toggleState = { has_reply: false, has_demand: false, has_rfq: false, has_quote: false };
   let searchTimer = null;
   let allCustomers = [];
 
@@ -718,12 +698,6 @@
     document.getElementById('selectedDisplay').classList.remove('show');
   }
 
-  // ── Toggle 按钮 ──────────────────────────────────────────
-  function toggle(btnId, field) {
-    toggleState[field] = !toggleState[field];
-    document.getElementById(btnId).classList.toggle('active', toggleState[field]);
-  }
-
   // ── 提交 ──────────────────────────────────────────
   async function submitLog() {
     if (!selectedCustomer) {
@@ -733,6 +707,8 @@
     const btn = document.getElementById('submitBtn');
     btn.disabled = true;
     btn.textContent = '保存中...';
+    const actionType = document.getElementById('actionType').value;
+    const derived = deriveLogState(actionType);
 
     const payload = {
       action: 'addContactLog',
@@ -741,16 +717,16 @@
         company:           getCustomerField(selectedCustomer, 'company'),
         contact_person:    getCustomerField(selectedCustomer, 'contact'),
         channel:           document.getElementById('channel').value,
-        action_type:       document.getElementById('actionType').value,
+        action_type:       actionType,
         log_date:          document.getElementById('logDate').value,
         my_message:        document.getElementById('myMessage').value,
         customer_reply:    document.getElementById('customerReply').value,
         ai_summary:        document.getElementById('aiSummary').value,
-        result:            getResultFromToggles(),
-        has_reply:         toggleState.has_reply ? 'TRUE' : 'FALSE',
-        has_demand:        toggleState.has_demand ? 'TRUE' : 'FALSE',
-        has_rfq:           toggleState.has_rfq ? 'TRUE' : 'FALSE',
-        has_quote:         toggleState.has_quote ? 'TRUE' : 'FALSE',
+        result:            derived.result,
+        has_reply:         derived.has_reply,
+        has_demand:        derived.has_demand,
+        has_rfq:           derived.has_rfq,
+        has_quote:         derived.has_quote,
         next_followup_date: document.getElementById('nextFollowup').value,
         remark:            document.getElementById('remark').value,
         created_by:        'Shawn'
@@ -787,20 +763,23 @@
     document.getElementById('remark').value = '';
     document.getElementById('nextFollowup').value = '';
     document.getElementById('actionType').value = 'SENT';
-
-    // 重置 toggles
-    Object.keys(toggleState).forEach(k => toggleState[k] = false);
-    ['togReply','togDemand','togRfq','togQuote'].forEach(id =>
-      document.getElementById(id).classList.remove('active')
-    );
   }
 
-  function getResultFromToggles() {
-    if (toggleState.has_quote) return '已报价';
-    if (toggleState.has_rfq) return '有询价';
-    if (toggleState.has_demand) return '有需求';
-    if (toggleState.has_reply) return '有回复';
-    return document.getElementById('actionType').value === 'NO_REPLY' ? '无回复' : '已触达';
+  function deriveLogState(actionType) {
+    const defaults = {
+      result: actionType === 'NO_REPLY' ? '无回复' : '已触达',
+      has_reply: 'FALSE',
+      has_demand: 'FALSE',
+      has_rfq: 'FALSE',
+      has_quote: 'FALSE'
+    };
+    const map = {
+      RECEIVED: { result: '有回复', has_reply: 'TRUE' },
+      RFQ_RECEIVED: { result: '未发', has_demand: 'TRUE', has_rfq: 'TRUE' },
+      QUOTED: { result: '已报价给客户', has_demand: 'TRUE', has_rfq: 'TRUE', has_quote: 'TRUE' },
+      ORDER_WON: { result: '成交', has_demand: 'TRUE', has_rfq: 'TRUE', has_quote: 'TRUE' }
+    };
+    return { ...defaults, ...(map[actionType] || {}) };
   }
 
   // ── Toast 提示 ──────────────────────────────────────────

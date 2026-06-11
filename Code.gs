@@ -7,17 +7,12 @@
 const SPREADSHEET_ID = '12bRXbKGBVIG09LWcLrxdg68J1kmem4UXjJzpfwboO9k'; // ← 替换这里
 const QUOTE_SHEET_NAMES = ['2026', 'Quote_Log'];
 const QUOTE_STATUS_VALUES = [
-  '有回复',
-  '有询价',
-  '已报价',
-  '已报价给客户',
-  '收到报价',
-  '已发采购',
+  '未发',
+  '发给采购',
   '采购已报价',
-  '已报给客户',
-  '已成交',
-  '丢单',
-  '待跟进'
+  '已报价给客户',
+  '意向订单',
+  '成交'
 ];
 
 // ============================================================
@@ -179,7 +174,7 @@ function getDashboard() {
   const hasRfq = uniqueCustomers(todayLogs.filter(r => r.has_rfq === 'TRUE'));
   const quoted = uniqueCustomers(todayQuotes.filter(r => {
     const status = normalizeQuoteStatus(getRowValue(r, ['quote_status', '报价状态', '状态']));
-    return status === '已报给客户' || status === '已报价' || status === '采购已报价' || status === '已成交';
+    return status === '已报价给客户' || status === '意向订单' || status === '成交';
   }));
 
   // 今天有RFQ但未报价
@@ -231,6 +226,7 @@ function getFollowups() {
 function addContactLog(data) {
   const logSheet = getSheet('Contact_Log');
   const custSheet = getSheet('Customers');
+  data = normalizeContactLogData(data || {});
 
   // 自动生成 log_id
   const lastRow = logSheet.getLastRow();
@@ -290,7 +286,7 @@ function addQuote(data) {
     data.customer_id || '',
     data.company || '',
     data.contact_person || '',
-    data.quote_status || '已报价',
+    data.quote_status || '已报价给客户',
     data.rfq_status || '',
     data.followup_status || '待跟进',
     data.mpn || '',
@@ -305,7 +301,7 @@ function addQuote(data) {
     customer_id: data.customer_id || '',
     company: data.company || '',
     contact_person: data.contact_person || '',
-    quote_status: data.quote_status || '已报价',
+    quote_status: data.quote_status || '已报价给客户',
     rfq_status: data.rfq_status || '',
     followup_status: data.followup_status || '待跟进'
   });
@@ -314,11 +310,11 @@ function addQuote(data) {
     customer_id: data.customer_id || '',
     company: data.company || '',
     contact_person: data.contact_person || '',
-    quote_status: data.quote_status || '已报价',
+    quote_status: data.quote_status || '已报价给客户',
     rfq_status: data.rfq_status || '',
     followup_status: data.followup_status || '待跟进',
     remark: data.remark || ''
-  }, data.quote_status || '已报价', sheet.getName() + '!' + sheet.getLastRow());
+  }, data.quote_status || '已报价给客户', sheet.getName() + '!' + sheet.getLastRow());
 
   return { status: 'ok' };
 }
@@ -378,21 +374,8 @@ function setupQuoteWorkflow() {
 
   applyDropdown(sheet, headers, 'quote_status', QUOTE_STATUS_VALUES);
   applyQuoteBlockDropdowns(sheet);
-  applyDropdown(sheet, headers, 'rfq_status', [
-    '待处理',
-    '已发采购',
-    '采购已回复',
-    '客户确认',
-    '关闭'
-  ]);
-  applyDropdown(sheet, headers, 'followup_status', [
-    'active',
-    '待跟进',
-    '已报价待跟进',
-    '已成交',
-    '丢单',
-    'closed'
-  ]);
+  clearDropdown(sheet, headers, 'rfq_status');
+  clearDropdown(sheet, headers, 'followup_status');
 
   setupCustomerStageDropdown();
 
@@ -417,8 +400,6 @@ function ensureQuoteWorkflowHeaders(sheet) {
     'company',
     'contact_person',
     'quote_status',
-    'rfq_status',
-    'followup_status',
     'mpn',
     'qty',
     'quoted_price',
@@ -486,13 +467,9 @@ function syncQuoteToCustomer(quote, ss) {
     followup_status: followupStatus
   };
 
-  if (quoteStatus === '已成交') {
+  if (quoteStatus === '成交') {
     updates.customer_stage = '有成交';
-  } else if (quoteStatus === '丢单') {
-    updates.followup_status = 'closed';
-  } else if (quoteStatus === '已报给客户' || quoteStatus === '已报价' || quoteStatus === '采购已报价' || quoteStatus === '有询价') {
-    updates.customer_stage = '有询价';
-  } else if (quoteStatus === '收到报价' || quoteStatus === '已发采购') {
+  } else if (['未发', '发给采购', '采购已报价', '已报价给客户', '意向订单'].indexOf(quoteStatus) !== -1) {
     updates.customer_stage = '有询价';
   } else if (quoteStatus === '有回复') {
     updates.customer_stage = '有回复';
@@ -510,10 +487,11 @@ function appendQuoteStatusContactLog(quote, rawStatus, sourceRow, ss) {
   const customerId = resolveQuoteCustomerId(quote, spreadsheet);
   if (!customerId) return { logged: false, reason: 'customer not found' };
 
-  const marker = 'AUTO_QUOTE_SYNC row=' + sourceRow + ' status=' + quoteStatus;
+  const markerPrefix = 'AUTO_QUOTE_SYNC row=' + sourceRow;
+  const marker = markerPrefix + ' status=' + quoteStatus;
   const logSheet = spreadsheet.getSheetByName('Contact_Log');
   const existingLogs = sheetToObjects(logSheet);
-  const alreadyLogged = existingLogs.some(log => getRowValue(log, ['remark', '备注']).indexOf(marker) !== -1);
+  const alreadyLogged = existingLogs.some(log => isSameAutoQuoteLog(getRowValue(log, ['remark', '备注']), markerPrefix, quoteStatus));
   if (alreadyLogged) return { logged: false, reason: 'duplicate' };
 
   const customer = getCustomerById(spreadsheet, customerId);
@@ -523,8 +501,8 @@ function appendQuoteStatusContactLog(quote, rawStatus, sourceRow, ss) {
   const logId = 'LOG-' + String(logSheet.getLastRow()).padStart(6, '0');
   const actionType = getQuoteActionType(quoteStatus);
   const result = getQuoteLogResult(quoteStatus);
-  const hasQuote = quoteStatus === '已报给客户' || quoteStatus === '已报价' || quoteStatus === '采购已报价' || quoteStatus === '已成交';
-  const hasRfq = quoteStatus === '有询价' || quoteStatus === '收到报价' || quoteStatus === '已发采购' || hasQuote;
+  const hasQuote = ['已报价给客户', '意向订单', '成交'].indexOf(quoteStatus) !== -1;
+  const hasRfq = ['未发', '发给采购', '采购已报价'].indexOf(quoteStatus) !== -1 || hasQuote;
   const company = getRowValue(quote, ['company', '公司']) || getRowValue(customer, ['company', '公司']);
   const contactPerson = getRowValue(quote, ['contact_person', '联系人']) || getRowValue(customer, ['contact_person', '联系人']);
   const channel = getRowValue(customer, ['default_channel', 'WhatsApp/Skype/LinkedIn']);
@@ -553,6 +531,15 @@ function appendQuoteStatusContactLog(quote, rawStatus, sourceRow, ss) {
   ]);
 
   return { logged: true, log_id: logId };
+}
+
+function isSameAutoQuoteLog(remark, markerPrefix, quoteStatus) {
+  const text = String(remark || '');
+  if (text.indexOf(markerPrefix) === -1) return false;
+
+  const match = text.match(/status=([^|]+)/);
+  if (!match) return true;
+  return normalizeQuoteStatus(match[1].trim()) === quoteStatus;
 }
 
 // ============================================================
@@ -618,14 +605,42 @@ function getRowValue(row, keys) {
 }
 
 function getStageFromContactLog(data) {
-  if (data.result === '已成交') return '有成交';
-  if (data.has_quote === 'TRUE' || data.has_rfq === 'TRUE' || data.result === '有询价' || data.result === '已报价') {
+  const result = normalizeQuoteStatus(data.result || '');
+  if (result === '成交' || data.action_type === 'ORDER_WON') return '有成交';
+  if (data.has_quote === 'TRUE' || data.has_rfq === 'TRUE' || result === '未发' || result === '发给采购' || result === '采购已报价' || result === '已报价给客户' || result === '意向订单') {
     return '有询价';
   }
   if (data.has_reply === 'TRUE' || data.has_demand === 'TRUE' || data.result === '有回复' || data.result === '有需求') {
     return '有回复';
   }
   return null;
+}
+
+function normalizeContactLogData(data) {
+  const action = data.action_type || '';
+  const result = data.result || getContactResultFromAction(action);
+  const normalizedResult = normalizeQuoteStatus(result);
+
+  const hasReply = data.has_reply === 'TRUE' || action === 'RECEIVED';
+  const hasRfq = data.has_rfq === 'TRUE' || action === 'RFQ_RECEIVED' || ['未发', '发给采购', '采购已报价', '已报价给客户', '意向订单', '成交'].indexOf(normalizedResult) !== -1;
+  const hasQuote = data.has_quote === 'TRUE' || action === 'QUOTED' || ['已报价给客户', '意向订单', '成交'].indexOf(normalizedResult) !== -1;
+  const hasDemand = data.has_demand === 'TRUE' || hasRfq || action === 'ORDER_WON';
+
+  data.result = normalizedResult || result;
+  data.has_reply = hasReply ? 'TRUE' : 'FALSE';
+  data.has_demand = hasDemand ? 'TRUE' : 'FALSE';
+  data.has_rfq = hasRfq ? 'TRUE' : 'FALSE';
+  data.has_quote = hasQuote ? 'TRUE' : 'FALSE';
+  return data;
+}
+
+function getContactResultFromAction(action) {
+  if (action === 'ORDER_WON') return '成交';
+  if (action === 'QUOTED') return '已报价给客户';
+  if (action === 'RFQ_RECEIVED') return '未发';
+  if (action === 'RECEIVED') return '有回复';
+  if (action === 'NO_REPLY') return '无回复';
+  return '已触达';
 }
 
 function findHeaderIndex(headers, key) {
@@ -857,6 +872,13 @@ function applyDropdown(sheet, headers, key, values) {
   sheet.getRange(2, col + 1, maxRows, 1).setDataValidation(rule);
 }
 
+function clearDropdown(sheet, headers, key) {
+  const col = findHeaderIndex(headers, key);
+  if (col === -1) return;
+  const maxRows = Math.max(sheet.getMaxRows() - 1, 1);
+  sheet.getRange(2, col + 1, maxRows, 1).clearDataValidations();
+}
+
 function applyQuoteBlockDropdowns(sheet) {
   const maxRows = sheet.getMaxRows();
   const lastCol = sheet.getLastColumn();
@@ -921,52 +943,51 @@ function normalizeMatchText(value) {
 
 function normalizeQuoteStatus(status) {
   const value = String(status || '').trim();
-  if (value === '已报价给客户' || value === '报价给客户' || value === '已报给客户' || value === 'QUOTE_SENT') return '已报价';
-  if (value === 'WON') return '已成交';
+  if (value === '待处理' || value === '有询价' || value === '收到询价' || value === '收到RFQ' || value === 'RFQ_RECEIVED') return '未发';
+  if (value === '已发采购' || value === '发采购' || value === 'SENT_TO_PURCHASING') return '发给采购';
+  if (value === '收到报价' || value === '采购已回复' || value === '采购已经报价' || value === 'SUPPLIER_QUOTED') return '采购已报价';
+  if (value === '已报价' || value === '已报价给客户' || value === '报价给客户' || value === '已报给客户' || value === 'QUOTE_SENT') return '已报价给客户';
+  if (value === '意向' || value === '客户确认' || value === '意向成交' || value === 'INTENT_ORDER') return '意向订单';
+  if (value === '已成交' || value === '成交' || value === 'WON') return '成交';
   if (value === 'LOST') return '丢单';
-  return value || '待跟进';
+  return value || '';
 }
 
 function normalizeFollowupStatus(quoteStatus, existingStatus) {
-  if (quoteStatus === '已成交') return '已成交';
+  if (quoteStatus === '成交') return '已成交';
   if (quoteStatus === '丢单') return 'closed';
-  if (quoteStatus === '已报给客户' || quoteStatus === '已报价' || quoteStatus === '采购已报价') return '已报价待跟进';
-  if (quoteStatus === '已发采购' || quoteStatus === '收到报价' || quoteStatus === '有回复' || quoteStatus === '有询价') return 'active';
+  if (quoteStatus === '已报价给客户' || quoteStatus === '意向订单') return '已报价待跟进';
+  if (quoteStatus === '未发' || quoteStatus === '发给采购' || quoteStatus === '采购已报价' || quoteStatus === '有回复') return 'active';
   return existingStatus || 'active';
 }
 
 function isMeaningfulQuoteStatus(status) {
   const value = normalizeQuoteStatus(status);
   return [
-    '有回复',
-    '有询价',
-    '已报价',
-    '已报价给客户',
-    '收到报价',
-    '已发采购',
+    '未发',
+    '发给采购',
     '采购已报价',
-    '已报给客户',
-    '已成交',
+    '已报价给客户',
+    '意向订单',
+    '成交',
+    '有回复',
     '丢单'
   ].indexOf(value) !== -1;
 }
 
 function getQuoteActionType(status) {
   const value = normalizeQuoteStatus(status);
-  if (value === '已成交') return 'ORDER_WON';
-  if (value === '已报给客户' || value === '已报价' || value === '采购已报价') return 'QUOTED';
+  if (value === '成交') return 'ORDER_WON';
+  if (value === '已报价给客户' || value === '意向订单') return 'QUOTED';
+  if (value === '未发') return 'RFQ_RECEIVED';
   if (value === '丢单') return 'LOST';
   return 'FOLLOW_UP';
 }
 
 function getQuoteLogResult(status) {
   const value = normalizeQuoteStatus(status);
-  if (value === '已成交') return '已成交';
   if (value === '丢单') return '丢单';
-  if (value === '有回复') return '有回复';
-  if (value === '有询价') return '有询价';
-  if (value === '已报给客户' || value === '已报价' || value === '采购已报价') return '已报价';
-  return '有询价';
+  return value;
 }
 
 function buildQuoteAutoLogNote(status, quote) {
