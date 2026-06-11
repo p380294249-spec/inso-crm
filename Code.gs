@@ -10,6 +10,7 @@ const QUOTE_STATUS_VALUES = [
   '有回复',
   '有询价',
   '已报价',
+  '已报价给客户',
   '收到报价',
   '已发采购',
   '采购已报价',
@@ -178,7 +179,7 @@ function getDashboard() {
   const hasRfq = uniqueCustomers(todayLogs.filter(r => r.has_rfq === 'TRUE'));
   const quoted = uniqueCustomers(todayQuotes.filter(r => {
     const status = normalizeQuoteStatus(getRowValue(r, ['quote_status', '报价状态', '状态']));
-    return status === '已报给客户' || status === '采购已报价' || status === '已成交';
+    return status === '已报给客户' || status === '已报价' || status === '采购已报价' || status === '已成交';
   }));
 
   // 今天有RFQ但未报价
@@ -893,8 +894,8 @@ function resolveQuoteCustomerId(quote, ss) {
 }
 
 function normalizeQuoteStatus(status) {
-  const value = status || '';
-  if (value === 'QUOTE_SENT') return '已报给客户';
+  const value = String(status || '').trim();
+  if (value === '已报价给客户' || value === '报价给客户' || value === '已报给客户' || value === 'QUOTE_SENT') return '已报价';
   if (value === 'WON') return '已成交';
   if (value === 'LOST') return '丢单';
   return value || '待跟进';
@@ -914,6 +915,7 @@ function isMeaningfulQuoteStatus(status) {
     '有回复',
     '有询价',
     '已报价',
+    '已报价给客户',
     '收到报价',
     '已发采购',
     '采购已报价',

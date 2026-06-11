@@ -490,8 +490,8 @@
     const today = new Date().toISOString().split('T')[0];
     document.getElementById('logDate').value = today;
 
-    // 预加载客户列表（缓存到本地，减少 API 调用）
-    loadCustomers().then(() => {
+    // 先同步报价表，再预加载客户列表（减少重复手动记录）
+    syncQuoteSheet().then(loadCustomers).then(() => {
       // 从 Dashboard 跳转过来时，URL 带有客户参数，自动选中
       const params = new URLSearchParams(window.location.search);
       const cid = params.get('customer_id');
@@ -537,6 +537,14 @@
       // 静默失败，搜索时再试
     }
     return true;
+  }
+
+  async function syncQuoteSheet() {
+    try {
+      await fetch(`${API_URL}?action=syncQuotes&t=${Date.now()}`);
+    } catch (err) {
+      console.warn('quote sync skipped', err);
+    }
   }
 
   // ── 搜索逻辑 ──────────────────────────────────────────
