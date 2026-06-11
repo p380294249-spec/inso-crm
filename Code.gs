@@ -375,6 +375,7 @@ function installQuoteSyncTrigger() {
 function setupQuoteWorkflow() {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const sheets = getQuoteSheets(ss);
+  const details = [];
 
   sheets.forEach(sheet => {
     if (sheet.getName() === 'Quote_Log') {
@@ -384,14 +385,19 @@ function setupQuoteWorkflow() {
 
     applyDropdown(sheet, headers, 'quote_status', QUOTE_STATUS_VALUES);
     applyQuoteBlockDropdowns(sheet);
-    applyQuoteStatusFormatting(sheet);
+    const statusRangeCount = applyQuoteStatusFormatting(sheet);
     clearDropdown(sheet, headers, 'rfq_status');
     clearDropdown(sheet, headers, 'followup_status');
+    details.push(sheet.getName() + ': ' + statusRangeCount + ' status areas');
   });
 
   setupCustomerStageDropdown();
 
-  return { status: 'ok', message: sheets.map(sheet => sheet.getName()).join(', ') + ' dropdowns and status colors updated' };
+  return {
+    status: 'ok',
+    message: sheets.map(sheet => sheet.getName()).join(', ') + ' dropdowns and status colors updated',
+    details: details
+  };
 }
 
 function setupCustomerStageDropdown() {
@@ -909,7 +915,7 @@ function clearDropdown(sheet, headers, key) {
 
 function applyQuoteStatusFormatting(sheet) {
   const ranges = getQuoteStatusRanges(sheet);
-  if (ranges.length === 0) return;
+  if (ranges.length === 0) return 0;
 
   ranges.forEach(range => {
     range
@@ -931,6 +937,7 @@ function applyQuoteStatusFormatting(sheet) {
   });
 
   sheet.setConditionalFormatRules(existingRules.concat(statusRules));
+  return ranges.length;
 }
 
 function getQuoteStatusRanges(sheet) {
@@ -947,10 +954,7 @@ function getQuoteStatusRanges(sheet) {
 
   const scanRows = Math.max(sheet.getLastRow(), 1);
   const values = sheet.getRange(1, 1, scanRows, lastCol).getValues();
-  const headerRows = [];
-  values.forEach((row, index) => {
-    if (isQuoteBlockHeaderRow(row)) headerRows.push(index + 1);
-  });
+  const headerRows = getQuoteStatusHeaderRows(values);
 
   headerRows.forEach((headerRow, index) => {
     const rowValues = values[headerRow - 1];
@@ -967,6 +971,15 @@ function getQuoteStatusRanges(sheet) {
   });
 
   return ranges;
+}
+
+function getQuoteStatusHeaderRows(values) {
+  const rows = [];
+  values.forEach((row, index) => {
+    const hasStatusHeader = row.some(cell => canonicalQuoteHeaderKey(cell) === 'quote_status');
+    if (hasStatusHeader) rows.push(index + 1);
+  });
+  return rows;
 }
 
 function ruleTouchesAnyRange(rule, targetRanges) {
@@ -1003,10 +1016,7 @@ function applyQuoteBlockDropdowns(sheet) {
     .setAllowInvalid(false)
     .build();
 
-  const headerRows = [];
-  values.forEach((row, index) => {
-    if (isQuoteBlockHeaderRow(row)) headerRows.push(index + 1);
-  });
+  const headerRows = getQuoteStatusHeaderRows(values);
 
   headerRows.forEach((headerRow, index) => {
     const rowValues = values[headerRow - 1];
@@ -1014,6 +1024,11 @@ function applyQuoteBlockDropdowns(sheet) {
       if (canonicalQuoteHeaderKey(header) !== 'quote_status') return;
       const headerCell = sheet.getRange(headerRow, colIndex + 1);
       if (String(header || '').trim().toUpperCase() === 'HOW') headerCell.setValue('STATUS');
+      headerCell
+        .setBackground('#111827')
+        .setFontColor('#FFFFFF')
+        .setFontWeight('bold')
+        .setHorizontalAlignment('center');
 
       const nextHeaderRow = headerRows[index + 1] || maxRows + 1;
       const startRow = headerRow + 1;
