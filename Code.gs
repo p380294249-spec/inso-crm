@@ -900,8 +900,8 @@ function resolveQuoteCustomerId(quote, ss) {
   const matches = customers.filter(c => {
     const customerCompany = normalizeMatchText(getRowValue(c, ['company', '公司']));
     const customerContact = normalizeMatchText(getRowValue(c, ['contact_person', '联系人']));
-    const companyOk = !company || customerCompany === company || customerCompany.indexOf(company) !== -1 || company.indexOf(customerCompany) !== -1;
-    const contactOk = !contact || customerContact === contact || customerContact.indexOf(contact) !== -1 || contact.indexOf(customerContact) !== -1;
+    const companyOk = !company || (!!customerCompany && (customerCompany === company || customerCompany.indexOf(company) !== -1 || company.indexOf(customerCompany) !== -1));
+    const contactOk = !contact || (!!customerContact && (customerContact === contact || customerContact.indexOf(contact) !== -1 || contact.indexOf(customerContact) !== -1));
     return companyOk && contactOk;
   });
 
