@@ -450,6 +450,9 @@ function syncAllQuotesToCustomers() {
   rows.forEach(row => {
     const quoteStatus = normalizeQuoteStatus(getRowValue(row, ['quote_status', '报价状态', '状态']));
     if (!isMeaningfulQuoteStatus(quoteStatus)) return;
+    if (!getRowValue(row, ['customer_id', '客户ID', '客户编号', 'Customer ID']) &&
+        !getRowValue(row, ['contact_person', '联系人']) &&
+        !getRowValue(row, ['company', '公司'])) return;
 
     if (row.source_row) fillQuoteDateIfBlank(sheet, Number(row.source_row));
 
