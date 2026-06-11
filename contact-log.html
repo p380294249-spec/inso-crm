@@ -470,8 +470,8 @@
     const today = new Date().toISOString().split('T')[0];
     document.getElementById('logDate').value = today;
 
-    // 先同步报价表，再预加载客户列表（减少重复手动记录）
-    syncQuoteSheet().then(loadCustomers).then(() => {
+    // 先加载客户，报价同步放到后台，避免记录页一打开就卡住
+    loadCustomers().then(() => {
       // 从 Dashboard 跳转过来时，URL 带有客户参数，自动选中
       const params = new URLSearchParams(window.location.search);
       const cid = params.get('customer_id');
@@ -490,6 +490,7 @@
         }
       }
     });
+    syncQuoteSheet().then(loadCustomers);
 
     // 点击外部关闭下拉
     document.addEventListener('click', (e) => {
@@ -512,9 +513,11 @@
       if (data.status === 'ok') {
         allCustomers = data.data;
         renderCustomerOptions(allCustomers);
+      } else {
+        showToast('客户列表加载失败: ' + (data.message || '未知错误'), true);
       }
     } catch (e) {
-      // 静默失败，搜索时再试
+      showToast('客户列表加载失败，请刷新重试', true);
     }
     return true;
   }
@@ -601,9 +604,9 @@
 
   function getCustomerField(c, field) {
     const map = {
-      id: ['customer_id'],
-      company: ['company', '公司'],
-      contact: ['contact_person', '联系人'],
+      id: ['customer_id', '客户ID', '客户编号', 'Customer ID'],
+      company: ['company', '公司', '公司名', '客户公司', '客户名称', '客户'],
+      contact: ['contact_person', '联系人', '客户联系人', 'Contact', 'contact', 'WHO'],
       channel: ['default_channel', 'channel', 'WhatsApp/Skype/LinkedIn'],
       grade: ['grade', '等级']
     };

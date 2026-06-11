@@ -5,7 +5,7 @@
 // ============================================================
 
 const SPREADSHEET_ID = '12bRXbKGBVIG09LWcLrxdg68J1kmem4UXjJzpfwboO9k'; // ← 替换这里
-const QUOTE_SHEET_NAMES = ['2026', 'Quote_Log'];
+const QUOTE_SHEET_NAMES = ['2026', 'SHAHAB', 'Quote_Log'];
 const QUOTE_STATUS_VALUES = [
   '未发',
   '发给采购',
@@ -14,6 +14,14 @@ const QUOTE_STATUS_VALUES = [
   '意向订单',
   '成交'
 ];
+const QUOTE_STATUS_STYLES = {
+  '未发': { bg: '#FDECEC', fg: '#991B1B' },
+  '发给采购': { bg: '#FEF3C7', fg: '#92400E' },
+  '采购已报价': { bg: '#DBEAFE', fg: '#1E40AF' },
+  '已报价给客户': { bg: '#DCFCE7', fg: '#166534' },
+  '意向订单': { bg: '#FCE7F3', fg: '#9D174D' },
+  '成交': { bg: '#D1FAE5', fg: '#065F46' }
+};
 
 // ============================================================
 // 入口：所有 GET 请求走这里
@@ -157,10 +165,9 @@ function getContactLog(params) {
 function getDashboard() {
   const today = formatDate(new Date());
   const logSheet = getSheet('Contact_Log');
-  const quoteSheet = getQuoteSheet();
 
   const logs = sheetToObjects(logSheet);
-  const quotes = sheetToQuoteObjects(quoteSheet);
+  const quotes = getAllQuoteObjects();
 
   const todayLogs = logs.filter(r => getRowValue(r, ['log_date', '联系日期']) === today);
   const todayQuotes = quotes.filter(r => getRowValue(r, ['quote_date', '报价日期', '日期']) === today);
@@ -366,20 +373,25 @@ function installQuoteSyncTrigger() {
 }
 
 function setupQuoteWorkflow() {
-  const sheet = getQuoteSheet();
-  if (sheet.getName() !== '2026') {
-    ensureQuoteWorkflowHeaders(sheet);
-  }
-  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheets = getQuoteSheets(ss);
 
-  applyDropdown(sheet, headers, 'quote_status', QUOTE_STATUS_VALUES);
-  applyQuoteBlockDropdowns(sheet);
-  clearDropdown(sheet, headers, 'rfq_status');
-  clearDropdown(sheet, headers, 'followup_status');
+  sheets.forEach(sheet => {
+    if (sheet.getName() === 'Quote_Log') {
+      ensureQuoteWorkflowHeaders(sheet);
+    }
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+
+    applyDropdown(sheet, headers, 'quote_status', QUOTE_STATUS_VALUES);
+    applyQuoteBlockDropdowns(sheet);
+    applyQuoteStatusFormatting(sheet);
+    clearDropdown(sheet, headers, 'rfq_status');
+    clearDropdown(sheet, headers, 'followup_status');
+  });
 
   setupCustomerStageDropdown();
 
-  return { status: 'ok', message: sheet.getName() + ' dropdowns updated' };
+  return { status: 'ok', message: sheets.map(sheet => sheet.getName()).join(', ') + ' dropdowns and status colors updated' };
 }
 
 function setupCustomerStageDropdown() {
@@ -422,29 +434,31 @@ function ensureQuoteWorkflowHeaders(sheet) {
 
 function syncAllQuotesToCustomers() {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  const sheet = getQuoteSheet(ss);
-  const rows = sheetToQuoteObjects(sheet);
+  const sheets = getQuoteSheets(ss);
   let updated = 0;
   let logged = 0;
   const skipped = [];
 
-  rows.forEach(row => {
-    const quoteStatus = normalizeQuoteStatus(getRowValue(row, ['quote_status', '报价状态', '状态']));
-    if (!isMeaningfulQuoteStatus(quoteStatus)) return;
-    if (!getRowValue(row, ['customer_id', '客户ID', '客户编号', 'Customer ID']) &&
-        !getRowValue(row, ['contact_person', '联系人']) &&
-        !getRowValue(row, ['company', '公司'])) return;
+  sheets.forEach(sheet => {
+    const rows = sheetToQuoteObjects(sheet);
+    rows.forEach(row => {
+      const quoteStatus = normalizeQuoteStatus(getRowValue(row, ['quote_status', '报价状态', '状态']));
+      if (!isMeaningfulQuoteStatus(quoteStatus)) return;
+      if (!getRowValue(row, ['customer_id', '客户ID', '客户编号', 'Customer ID']) &&
+          !getRowValue(row, ['contact_person', '联系人']) &&
+          !getRowValue(row, ['company', '公司'])) return;
 
-    if (row.source_row) fillQuoteDateIfBlank(sheet, Number(row.source_row));
+      if (row.source_row) fillQuoteDateIfBlank(sheet, Number(row.source_row));
 
-    const result = syncQuoteToCustomer(row, ss);
-    if (result.updated) {
-      updated++;
-      const logResult = appendQuoteStatusContactLog(row, quoteStatus, row.source_ref || sheet.getName(), ss);
-      if (logResult.logged) logged++;
-    } else {
-      skipped.push(result.reason || 'missing customer');
-    }
+      const result = syncQuoteToCustomer(row, ss);
+      if (result.updated) {
+        updated++;
+        const logResult = appendQuoteStatusContactLog(row, quoteStatus, row.source_ref || sheet.getName(), ss);
+        if (logResult.logged) logged++;
+      } else {
+        skipped.push(result.reason || 'missing customer');
+      }
+    });
   });
 
   return { status: 'ok', updated, logged, skipped_count: skipped.length, skipped };
@@ -687,6 +701,20 @@ function getQuoteSheet(ss) {
   throw new Error('找不到报价 Sheet，请建立 2026 或 Quote_Log 标签页');
 }
 
+function getQuoteSheets(ss) {
+  const spreadsheet = ss || SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheets = QUOTE_SHEET_NAMES
+    .map(name => spreadsheet.getSheetByName(name))
+    .filter(Boolean);
+  if (sheets.length === 0) throw new Error('找不到报价 Sheet，请建立 2026、SHAHAB 或 Quote_Log 标签页');
+  return sheets;
+}
+
+function getAllQuoteObjects(ss) {
+  const spreadsheet = ss || SpreadsheetApp.openById(SPREADSHEET_ID);
+  return getQuoteSheets(spreadsheet).reduce((all, sheet) => all.concat(sheetToQuoteObjects(sheet)), []);
+}
+
 function isQuoteSheetName(name) {
   return QUOTE_SHEET_NAMES.indexOf(name) !== -1;
 }
@@ -877,6 +905,91 @@ function clearDropdown(sheet, headers, key) {
   if (col === -1) return;
   const maxRows = Math.max(sheet.getMaxRows() - 1, 1);
   sheet.getRange(2, col + 1, maxRows, 1).clearDataValidations();
+}
+
+function applyQuoteStatusFormatting(sheet) {
+  const ranges = getQuoteStatusRanges(sheet);
+  if (ranges.length === 0) return;
+
+  ranges.forEach(range => {
+    range
+      .setHorizontalAlignment('center')
+      .setFontWeight('bold');
+  });
+
+  const existingRules = sheet.getConditionalFormatRules()
+    .filter(rule => !ruleTouchesAnyRange(rule, ranges));
+
+  const statusRules = QUOTE_STATUS_VALUES.map(status => {
+    const style = QUOTE_STATUS_STYLES[status];
+    return SpreadsheetApp.newConditionalFormatRule()
+      .whenTextEqualTo(status)
+      .setBackground(style.bg)
+      .setFontColor(style.fg)
+      .setRanges(ranges)
+      .build();
+  });
+
+  sheet.setConditionalFormatRules(existingRules.concat(statusRules));
+}
+
+function getQuoteStatusRanges(sheet) {
+  const ranges = [];
+  const maxRows = sheet.getMaxRows();
+  const lastCol = sheet.getLastColumn();
+  if (maxRows < 2 || lastCol < 1) return ranges;
+
+  const topHeaders = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  const topStatusCol = findHeaderIndex(topHeaders, 'quote_status');
+  if (topStatusCol !== -1) {
+    ranges.push(sheet.getRange(2, topStatusCol + 1, maxRows - 1, 1));
+  }
+
+  const scanRows = Math.max(sheet.getLastRow(), 1);
+  const values = sheet.getRange(1, 1, scanRows, lastCol).getValues();
+  const headerRows = [];
+  values.forEach((row, index) => {
+    if (isQuoteBlockHeaderRow(row)) headerRows.push(index + 1);
+  });
+
+  headerRows.forEach((headerRow, index) => {
+    const rowValues = values[headerRow - 1];
+    const nextHeaderRow = headerRows[index + 1] || maxRows + 1;
+    const startRow = headerRow + 1;
+    const numRows = Math.max(nextHeaderRow - startRow, 0);
+    if (numRows <= 0) return;
+
+    rowValues.forEach((header, colIndex) => {
+      if (canonicalQuoteHeaderKey(header) === 'quote_status') {
+        ranges.push(sheet.getRange(startRow, colIndex + 1, numRows, 1));
+      }
+    });
+  });
+
+  return ranges;
+}
+
+function ruleTouchesAnyRange(rule, targetRanges) {
+  return rule.getRanges().some(ruleRange =>
+    targetRanges.some(targetRange => rangesOverlap(ruleRange, targetRange))
+  );
+}
+
+function rangesOverlap(a, b) {
+  if (a.getSheet().getSheetId() !== b.getSheet().getSheetId()) return false;
+  const aRowStart = a.getRow();
+  const aRowEnd = a.getLastRow();
+  const bRowStart = b.getRow();
+  const bRowEnd = b.getLastRow();
+  const aColStart = a.getColumn();
+  const aColEnd = a.getLastColumn();
+  const bColStart = b.getColumn();
+  const bColEnd = b.getLastColumn();
+
+  return aRowStart <= bRowEnd &&
+    bRowStart <= aRowEnd &&
+    aColStart <= bColEnd &&
+    bColStart <= aColEnd;
 }
 
 function applyQuoteBlockDropdowns(sheet) {
