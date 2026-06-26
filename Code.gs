@@ -174,22 +174,24 @@ function getDashboard() {
   const today = formatDate(new Date());
   const logSheet = getSheet('Contact_Log');
 
-  const logs = sheetToObjects(logSheet);
-  const quotes = getAllQuoteObjects();
+  const logs = sheetToObjects(logSheet).map(normalizeContactLogRow);
 
   const todayLogs = logs.filter(r => getRowValue(r, ['log_date', '联系日期']) === today);
-  const todayQuotes = quotes.filter(r => getRowValue(r, ['quote_date', '报价日期', '日期']) === today);
 
   // 去重函数
-  const uniqueCustomers = (arr) => [...new Set(arr.map(r => getRowValue(r, ['customer_id', '客户ID', '客户编号', 'Customer ID'])).filter(Boolean))];
+  const uniqueCustomers = (arr) => [...new Set(arr.map(r => r.customer_id).filter(Boolean))];
 
-  const contacted = uniqueCustomers(todayLogs.filter(r => r.action_type === 'SENT'));
-  const replied = uniqueCustomers(todayLogs.filter(r => r.has_reply === 'TRUE'));
-  const hasDemand = uniqueCustomers(todayLogs.filter(r => r.has_demand === 'TRUE'));
-  const hasRfq = uniqueCustomers(todayLogs.filter(r => r.has_rfq === 'TRUE'));
-  const quoted = uniqueCustomers(todayQuotes.filter(r => {
-    const status = normalizeQuoteStatus(getRowValue(r, ['quote_status', '报价状态', '状态']));
-    return status === '已报价给客户' || status === '意向订单' || status === '成交';
+  const contacted = uniqueCustomers(todayLogs);
+  const replied = uniqueCustomers(todayLogs.filter(r => isTrueValue(r.has_reply) || r.action_type === 'RECEIVED'));
+  const hasDemand = uniqueCustomers(todayLogs.filter(r => isTrueValue(r.has_demand) || isTrueValue(r.has_rfq) || isTrueValue(r.has_quote)));
+  const hasRfq = uniqueCustomers(todayLogs.filter(r => isTrueValue(r.has_rfq) || r.action_type === 'RFQ_RECEIVED'));
+  const quoted = uniqueCustomers(todayLogs.filter(r => {
+    const status = normalizeQuoteStatus(r.result);
+    return isTrueValue(r.has_quote) ||
+      r.action_type === 'QUOTED' ||
+      status === '已报价给客户' ||
+      status === '意向订单' ||
+      status === '成交';
   }));
 
   // 今天有RFQ但未报价
