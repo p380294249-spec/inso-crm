@@ -444,7 +444,7 @@ function refreshCurrent() {
 
 async function fetchApi(action) {
   if (!cache[action]) {
-    cache[action] = fetch(`${API_URL}?action=${action}`).then(res => res.json());
+    cache[action] = fetch(`${API_URL}?action=${action}&t=${Date.now()}`).then(res => res.json());
   }
   return cache[action];
 }
