@@ -451,16 +451,20 @@ async function fetchApi(action) {
 
 async function syncQuoteSheet() {
   try {
-    const res = await fetch(`${API_URL}?action=syncQuotes&t=${Date.now()}`);
-    const json = await res.json();
-    if (json.status === 'ok') {
+    const [quoteRes, contactRes] = await Promise.all([
+      fetch(`${API_URL}?action=syncQuotes&t=${Date.now()}`),
+      fetch(`${API_URL}?action=syncContactLogs&t=${Date.now()}`)
+    ]);
+    const quoteJson = await quoteRes.json();
+    const contactJson = await contactRes.json();
+    if (quoteJson.status === 'ok' || contactJson.status === 'ok') {
       delete cache.getDashboard;
       delete cache.getFollowups;
       delete cache.getContactLog;
       delete cache.getCustomers;
     }
   } catch (err) {
-    console.warn('quote sync skipped', err);
+    console.warn('crm sync skipped', err);
   }
 }
 

@@ -54,6 +54,10 @@ function doGet(e) {
       return respond(syncAllQuotesToCustomers());
     }
 
+    if (action === 'syncContactLogs') {
+      return respond(syncContactLogsToCustomers());
+    }
+
     if (action === 'setupQuoteWorkflow') {
       return respond(setupQuoteWorkflow());
     }
@@ -91,6 +95,10 @@ function doPost(e) {
 
     if (action === 'syncQuotes') {
       return respond(syncAllQuotesToCustomers());
+    }
+
+    if (action === 'syncContactLogs') {
+      return respond(syncContactLogsToCustomers());
     }
 
     if (action === 'setupQuoteWorkflow') {
@@ -277,6 +285,79 @@ function addContactLog(data) {
   });
 
   return { status: 'ok', log_id: logId };
+}
+
+function syncContactLogsToCustomers() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const logSheet = ss.getSheetByName('Contact_Log');
+  const custSheet = ss.getSheetByName('Customers');
+  const logs = sheetToObjects(logSheet);
+  const summaries = {};
+  const skipped = [];
+
+  logs.forEach(rawLog => {
+    const log = normalizeContactLogRow(rawLog);
+    const customerId = log.customer_id || resolveLogCustomerId(log, ss);
+    const logDate = log.log_date;
+    if (!customerId || !logDate) {
+      if (log.company || log.contact_person || log.my_message || log.customer_reply) {
+        skipped.push('找不到客户或日期: ' + (log.company || log.contact_person || log.log_id || ''));
+      }
+      return;
+    }
+
+    const summary = summaries[customerId] || {
+      last_contact_date: '',
+      last_reply_date: '',
+      last_rfq_date: '',
+      last_quote_date: '',
+      next_followup_date: '',
+      next_followup_source_date: '',
+      customer_stage: ''
+    };
+
+    summary.last_contact_date = maxDate(summary.last_contact_date, logDate);
+    if (isTrueValue(log.has_reply) || log.action_type === 'RECEIVED') {
+      summary.last_reply_date = maxDate(summary.last_reply_date, logDate);
+    }
+    if (isTrueValue(log.has_rfq) || log.action_type === 'RFQ_RECEIVED') {
+      summary.last_rfq_date = maxDate(summary.last_rfq_date, logDate);
+    }
+    if (isTrueValue(log.has_quote) || log.action_type === 'QUOTED') {
+      summary.last_quote_date = maxDate(summary.last_quote_date, logDate);
+    }
+
+    const stage = getStageFromContactLog(log);
+    summary.customer_stage = higherStage(summary.customer_stage, stage);
+
+    if (log.next_followup_date && (!summary.next_followup_source_date || logDate >= summary.next_followup_source_date)) {
+      summary.next_followup_date = log.next_followup_date;
+      summary.next_followup_source_date = logDate;
+    }
+
+    summaries[customerId] = summary;
+  });
+
+  let updated = 0;
+  Object.keys(summaries).forEach(customerId => {
+    const summary = summaries[customerId];
+    updateCustomerDates(custSheet, customerId, {
+      last_contact_date: summary.last_contact_date,
+      last_reply_date: summary.last_reply_date,
+      last_rfq_date: summary.last_rfq_date,
+      last_quote_date: summary.last_quote_date,
+      customer_stage: summary.customer_stage,
+      next_followup_date: summary.next_followup_date
+    });
+    updated++;
+  });
+
+  return {
+    status: 'ok',
+    updated,
+    skipped_count: skipped.length,
+    skipped: skipped.slice(0, 20)
+  };
 }
 
 // ============================================================
@@ -627,13 +708,37 @@ function getRowValue(row, keys) {
 function getStageFromContactLog(data) {
   const result = normalizeQuoteStatus(data.result || '');
   if (result === '成交' || data.action_type === 'ORDER_WON') return '有成交';
-  if (data.has_quote === 'TRUE' || data.has_rfq === 'TRUE' || result === '未发' || result === '发给采购' || result === '采购已报价' || result === '已报价给客户' || result === '意向订单') {
+  if (isTrueValue(data.has_quote) || isTrueValue(data.has_rfq) || result === '未发' || result === '发给采购' || result === '采购已报价' || result === '已报价给客户' || result === '意向订单') {
     return '有询价';
   }
-  if (data.has_reply === 'TRUE' || data.has_demand === 'TRUE' || data.result === '有回复' || data.result === '有需求') {
+  if (isTrueValue(data.has_reply) || isTrueValue(data.has_demand) || data.result === '有回复' || data.result === '有需求') {
     return '有回复';
   }
   return null;
+}
+
+function normalizeContactLogRow(row) {
+  return normalizeContactLogData({
+    log_id: getRowValue(row, ['log_id', '记录ID']),
+    log_date: getRowValue(row, ['log_date', '联系日期', '日期']),
+    log_time: getRowValue(row, ['log_time', '联系时间', '时间']),
+    customer_id: getRowValue(row, ['customer_id', '客户ID', '客户编号', 'Customer ID']),
+    company: getRowValue(row, ['company', '公司', '客户公司', '客户']),
+    contact_person: getRowValue(row, ['contact_person', '联系人', '客户联系人']),
+    channel: getRowValue(row, ['channel', '联系渠道', '渠道']),
+    action_type: getRowValue(row, ['action_type', '动作类型']),
+    my_message: getRowValue(row, ['my_message', '发送内容', '我发了什么']),
+    customer_reply: getRowValue(row, ['customer_reply', '客户回复']),
+    ai_summary: getRowValue(row, ['ai_summary', 'AI摘要', '摘要']),
+    result: getRowValue(row, ['result', '结果', '本次结果']),
+    has_reply: getRowValue(row, ['has_reply', '是否回复', '客户已回复']),
+    has_demand: getRowValue(row, ['has_demand', '是否有需求', '有需求']),
+    has_rfq: getRowValue(row, ['has_rfq', '是否RFQ', '收到RFQ', '收到询价']),
+    has_quote: getRowValue(row, ['has_quote', '是否报价', '已报价']),
+    next_followup_date: getRowValue(row, ['next_followup_date', '下次跟进日期']),
+    created_by: getRowValue(row, ['created_by', '创建人']),
+    remark: getRowValue(row, ['remark', '备注'])
+  });
 }
 
 function normalizeContactLogData(data) {
@@ -641,10 +746,10 @@ function normalizeContactLogData(data) {
   const result = data.result || getContactResultFromAction(action);
   const normalizedResult = normalizeQuoteStatus(result);
 
-  const hasReply = data.has_reply === 'TRUE' || action === 'RECEIVED';
-  const hasRfq = data.has_rfq === 'TRUE' || action === 'RFQ_RECEIVED' || ['未发', '发给采购', '采购已报价', '已报价给客户', '意向订单', '成交'].indexOf(normalizedResult) !== -1;
-  const hasQuote = data.has_quote === 'TRUE' || action === 'QUOTED' || ['已报价给客户', '意向订单', '成交'].indexOf(normalizedResult) !== -1;
-  const hasDemand = data.has_demand === 'TRUE' || hasRfq || action === 'ORDER_WON';
+  const hasReply = isTrueValue(data.has_reply) || action === 'RECEIVED' || result === '有回复' || !!data.customer_reply;
+  const hasRfq = isTrueValue(data.has_rfq) || action === 'RFQ_RECEIVED' || ['未发', '发给采购', '采购已报价', '已报价给客户', '意向订单', '成交'].indexOf(normalizedResult) !== -1;
+  const hasQuote = isTrueValue(data.has_quote) || action === 'QUOTED' || ['已报价给客户', '意向订单', '成交'].indexOf(normalizedResult) !== -1;
+  const hasDemand = isTrueValue(data.has_demand) || hasRfq || action === 'ORDER_WON' || result === '有需求';
 
   data.result = normalizedResult || result;
   data.has_reply = hasReply ? 'TRUE' : 'FALSE';
@@ -652,6 +757,37 @@ function normalizeContactLogData(data) {
   data.has_rfq = hasRfq ? 'TRUE' : 'FALSE';
   data.has_quote = hasQuote ? 'TRUE' : 'FALSE';
   return data;
+}
+
+function resolveLogCustomerId(log, ss) {
+  return resolveQuoteCustomerId({
+    customer_id: log.customer_id,
+    company: log.company,
+    contact_person: log.contact_person
+  }, ss);
+}
+
+function isTrueValue(value) {
+  const text = String(value || '').trim().toLowerCase();
+  return text === 'true' || text === 'yes' || text === 'y' || text === '1' || text === '是';
+}
+
+function maxDate(a, b) {
+  if (!a) return b || '';
+  if (!b) return a || '';
+  return String(a) >= String(b) ? String(a) : String(b);
+}
+
+function higherStage(a, b) {
+  const rank = {
+    '待开发': 0,
+    '有回复': 1,
+    '有询价': 2,
+    '有成交': 3
+  };
+  if (!b) return a || '';
+  if (!a) return b;
+  return (rank[b] || 0) > (rank[a] || 0) ? b : a;
 }
 
 function getContactResultFromAction(action) {

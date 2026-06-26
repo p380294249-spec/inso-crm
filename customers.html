@@ -427,9 +427,12 @@ async function loadData() {
 
 async function syncQuoteSheet() {
   try {
-    await fetch(`${API_URL}?action=syncQuotes&t=${Date.now()}`);
+    await Promise.all([
+      fetch(`${API_URL}?action=syncQuotes&t=${Date.now()}`),
+      fetch(`${API_URL}?action=syncContactLogs&t=${Date.now()}`)
+    ]);
   } catch (err) {
-    console.warn('quote sync skipped', err);
+    console.warn('crm sync skipped', err);
   }
 }
 
