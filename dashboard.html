@@ -365,6 +365,7 @@
     <a class="btn-page" href="customers.html">客户列表</a>
     <a class="btn-page" href="contact-log.html">记录沟通</a>
     <button class="btn-refresh" onclick="refreshCurrent()">刷新</button>
+    <button class="btn-refresh" onclick="syncNow(this)">同步</button>
   </div>
 </div>
 
@@ -429,9 +430,14 @@ function switchTab(tab) {
 
 async function loadTodayView() {
   loadedTabs.today = true;
-  await syncQuoteSheet();
   loadToday();
   loadFollowups();
+}
+
+async function syncNow(btn) {
+  if (btn) { btn.disabled = true; btn.textContent = '同步中…'; }
+  try { await syncQuoteSheet(); refreshCurrent(); }
+  finally { if (btn) { btn.disabled = false; btn.textContent = '同步'; } }
 }
 
 function refreshCurrent() {
