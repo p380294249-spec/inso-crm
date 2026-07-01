@@ -90,6 +90,19 @@
   select.filter:focus { border-color: var(--border-active); color: var(--text); }
   select.filter option { background: #fff; color: var(--text); }
 
+  .toolbar-btn {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-family: var(--sans);
+    font-size: 12px;
+    padding: 9px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  .toolbar-btn:hover { border-color: var(--border-active); color: var(--accent); }
+  .toolbar-btn:disabled { cursor: wait; opacity: 0.6; }
+
   .count-label {
     font-family: var(--mono);
     font-size: 10px;
@@ -342,6 +355,8 @@
     <option value="C">C 级</option>
     <option value="D">D 级</option>
   </select>
+  <button class="toolbar-btn" onclick="refreshCustomers(this)">刷新</button>
+  <button class="toolbar-btn" onclick="syncNow(this)">同步</button>
   <span class="count-label" id="countLabel">— 客户</span>
 </div>
 
@@ -408,21 +423,34 @@ window.onload = () => {
 };
 
 async function loadData() {
+  const requestTime = Date.now();
+
+  fetch(`${API_URL}?action=getContactLog&t=${requestTime}`)
+    .then(res => res.json())
+    .then(json => { if (json.status === 'ok') allLogs = json.data; })
+    .catch(err => console.warn('contact log load skipped', err));
+
   try {
-    await syncQuoteSheet();
-    const [cRes, lRes] = await Promise.all([
-      fetch(`${API_URL}?action=getCustomers`),
-      fetch(`${API_URL}?action=getContactLog`)
-    ]);
+    const cRes = await fetch(`${API_URL}?action=getCustomers&t=${requestTime}`);
     const cJson = await cRes.json();
-    const lJson = await lRes.json();
     if (cJson.status === 'ok') allCustomers = cJson.data;
-    if (lJson.status === 'ok') allLogs = lJson.data;
     renderTable();
   } catch (err) {
     document.getElementById('tableBody').innerHTML =
       `<tr><td colspan="9"><div class="empty">加载失败: ${err.message}</div></td></tr>`;
   }
+}
+
+async function refreshCustomers(btn) {
+  if (btn) { btn.disabled = true; btn.textContent = '刷新中…'; }
+  try { await loadData(); }
+  finally { if (btn) { btn.disabled = false; btn.textContent = '刷新'; } }
+}
+
+async function syncNow(btn) {
+  if (btn) { btn.disabled = true; btn.textContent = '同步中…'; }
+  try { await syncQuoteSheet(); await loadData(); }
+  finally { if (btn) { btn.disabled = false; btn.textContent = '同步'; } }
 }
 
 async function syncQuoteSheet() {
